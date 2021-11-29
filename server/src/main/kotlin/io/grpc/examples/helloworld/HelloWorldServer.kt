@@ -36,12 +36,12 @@ open class HelloWorldServer: CommandLineRunner {
 
     fun start() {
         server.start()
-        println("Server started, listening on $port")
+        log.info("gRPC server started, listening on $port")
         Runtime.getRuntime().addShutdownHook(
             Thread {
-                println("*** shutting down gRPC server since JVM is shutting down")
+                log.info("*** shutting down gRPC server since JVM is shutting down")
                 this@HelloWorldServer.stop()
-                println("*** server shut down")
+                log.info("*** server shut down")
             }
         )
     }
