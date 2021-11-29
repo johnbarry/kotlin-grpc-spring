@@ -18,23 +18,27 @@ package io.grpc.examples.helloworld
 
 import io.grpc.Server
 import io.grpc.ServerBuilder
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.reactive.asFlow
+import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import org.springframework.boot.CommandLineRunner
 import org.springframework.boot.SpringApplication
 import org.springframework.boot.WebApplicationType
 import org.springframework.boot.autoconfigure.SpringBootApplication
 import org.springframework.stereotype.Component
+import reactor.core.publisher.Flux
 
 @SpringBootApplication
 @Component
 open class HelloWorldServer: CommandLineRunner {
-    val port = 50051
-    val server: Server = ServerBuilder
+    private val port = 50051
+    private val server: Server = ServerBuilder
         .forPort(port)
         .addService(HelloWorldService())
         .build()
 
-    fun start() {
+    private fun start() {
         server.start()
         log.info("gRPC server started, listening on $port")
         Runtime.getRuntime().addShutdownHook(
@@ -50,15 +54,23 @@ open class HelloWorldServer: CommandLineRunner {
         server.shutdown()
     }
 
-    fun blockUntilShutdown() {
+    private fun blockUntilShutdown() {
         server.awaitTermination()
     }
 
     private class HelloWorldService : GreeterGrpcKt.GreeterCoroutineImplBase() {
-        override suspend fun sayHello(request: HelloRequest) = helloReply {
+        override suspend fun sayHello(request: HelloRequest): HelloReply = helloReply {
             message = "Hello ${request.name}"
             log.info("Client sent sayHello - responding with $message")
         }
+
+        override fun listFriends (request: FriendListRequest): Flow<FriendReply> =
+            Flux.fromIterable(
+                    listOf("Harry","Sally","Joe","Mary","Ted","Jack","Stephanie","Steven")
+                     .flatMap { name -> ('A' .. 'Z').map { x -> "$name $x" }}
+                )
+                .map{ friendReply{ name=it }  }
+                .asFlow()
     }
 
     override fun run(vararg args: String) {
@@ -69,7 +81,7 @@ open class HelloWorldServer: CommandLineRunner {
     }
 
     companion object {
-        val log = LoggerFactory.getLogger(HelloWorldServer::class.java)
+        val log: Logger = LoggerFactory.getLogger(HelloWorldServer::class.java)
     }
 
 }

@@ -19,6 +19,8 @@ package io.grpc.examples.helloworld
 import io.grpc.ManagedChannel
 import io.grpc.ManagedChannelBuilder
 import io.grpc.examples.helloworld.GreeterGrpcKt.GreeterCoroutineStub
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.count
 import java.io.Closeable
 import java.util.concurrent.TimeUnit
 
@@ -30,6 +32,10 @@ class HelloWorldClient(private val channel: ManagedChannel) : Closeable {
         val response = stub.sayHello(request)
         println("Received: ${response.message}")
     }
+
+    suspend fun getFriends() =
+        stub.listFriends(  FriendListRequest.getDefaultInstance() )
+            .collect( ::println )
 
     override fun close() {
         channel.shutdown().awaitTermination(5, TimeUnit.SECONDS)
@@ -49,4 +55,5 @@ suspend fun main(args: Array<String>) {
 
     val user = args.singleOrNull() ?: "world"
     client.greet(user)
+    client.getFriends()
 }
