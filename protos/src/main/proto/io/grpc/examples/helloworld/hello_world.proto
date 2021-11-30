@@ -24,17 +24,33 @@ service Greeter {
   // Sends a greeting
   rpc SayHello (HelloRequest) returns (HelloReply) {}
   rpc ListFriends (FriendListRequest) returns (stream FriendReply) {}
-  rpc MakeFriend(MakeFriendCommand) returns (NewFriendshipEvent) {}
-  rpc NewFriendshipEventStream(EventStreamRequest) returns (stream NewFriendshipEvent) {}
 }
 
-message FriendListRequest {}
+service FriendHelper {
+  rpc RequestFriend(MakeFriendRequest) returns (MakeFriendCommand) {}
+}
+
+service FriendService {
+  rpc CmdMakeFriend(MakeFriendCommand) returns (NewFriendshipEvent) {}
+  rpc EventsNewFriendship(EventStreamRequest) returns (stream NewFriendshipEvent) {}
+}
+
+
+message FriendListRequest {
+
+}
 
 message EventStreamRequest {}
 
-message MakeFriendCommand {
+message MakeFriendRequest {
   string firstPerson = 1;
   string secondPerson = 2;
+}
+
+message MakeFriendCommand {
+  string key = 1;
+  string firstPerson = 2;
+  string secondPerson = 3;
 }
 
 message NewFriendshipEvent {

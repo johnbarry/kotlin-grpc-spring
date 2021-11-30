@@ -16,6 +16,7 @@
 
 package io.grpc.examples.helloworld
 
+import com.google.protobuf.util.JsonFormat
 import io.grpc.Server
 import io.grpc.ServerBuilder
 import kotlinx.coroutines.flow.Flow
@@ -31,11 +32,12 @@ import reactor.core.publisher.Flux
 
 @SpringBootApplication
 @Component
-open class HelloWorldServer: CommandLineRunner {
+open class HelloWorldServer : CommandLineRunner {
     private val port = 50051
     private val server: Server = ServerBuilder
         .forPort(port)
         .addService(HelloWorldService())
+        .addService(FriendHelperService())
         .build()
 
     private fun start() {
@@ -64,13 +66,32 @@ open class HelloWorldServer: CommandLineRunner {
             log.info("Client sent sayHello - responding with $message")
         }
 
-        override fun listFriends (request: FriendListRequest): Flow<FriendReply> =
+        override fun listFriends(request: FriendListRequest): Flow<FriendReply> =
             Flux.fromIterable(
-                    listOf("Harry","Sally","Joe","Mary","Ted","Jack","Stephanie","Steven")
-                     .flatMap { name -> ('A' .. 'Z').map { x -> "$name $x" }}
-                )
-                .map{ friendReply{ name=it }  }
+                listOf("Harry", "Sally", "Joe", "Mary", "Ted", "Jack", "Stephanie", "Steven")
+                    .flatMap { name -> ('A'..'Z').map { x -> "$name $x" } }
+            )
+                .map { friendReply { name = it } }
                 .asFlow()
+    }
+
+    private class FriendHelperService : FriendHelperGrpcKt.FriendHelperCoroutineImplBase() {
+        private val kafkaWriter = KafkaMessageWriter("FriendRequest")
+
+        @Suppress("BlockingMethodInNonBlockingContext")
+        override suspend fun requestFriend(request: MakeFriendRequest): MakeFriendCommand =
+            makeFriendCommand {
+                firstPerson = request.firstPerson
+                secondPerson = request.secondPerson
+            }.apply {
+                kafkaWriter.write(
+                    Flux.just(
+                        Pair(
+                            "${firstPerson}_$secondPerson", JsonFormat.printer().print(this)
+                        )
+                    )
+                )
+            }
     }
 
     override fun run(vararg args: String) {

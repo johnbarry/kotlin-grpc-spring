@@ -19,13 +19,14 @@ package io.grpc.examples.helloworld
 import io.grpc.ManagedChannel
 import io.grpc.ManagedChannelBuilder
 import io.grpc.examples.helloworld.GreeterGrpcKt.GreeterCoroutineStub
+import io.grpc.examples.helloworld.FriendHelperGrpcKt.FriendHelperCoroutineStub
 import kotlinx.coroutines.flow.collect
-import kotlinx.coroutines.flow.count
 import java.io.Closeable
 import java.util.concurrent.TimeUnit
 
 class HelloWorldClient(private val channel: ManagedChannel) : Closeable {
     private val stub: GreeterCoroutineStub = GreeterCoroutineStub(channel)
+    private val friendHelperStub = FriendHelperCoroutineStub(channel)
 
     suspend fun greet(name: String) {
         val request = helloRequest { this.name = name }
@@ -36,6 +37,13 @@ class HelloWorldClient(private val channel: ManagedChannel) : Closeable {
     suspend fun getFriends() =
         stub.listFriends(  FriendListRequest.getDefaultInstance() )
             .collect( ::println )
+
+    suspend fun requestFriend(firstName: String, secondName: String) =
+        println(friendHelperStub.requestFriend( makeFriendRequest {
+            firstPerson = firstName
+            secondPerson = secondName
+        } ))
+
 
     override fun close() {
         channel.shutdown().awaitTermination(5, TimeUnit.SECONDS)
@@ -56,4 +64,5 @@ suspend fun main(args: Array<String>) {
     val user = args.singleOrNull() ?: "world"
     client.greet(user)
     client.getFriends()
+    client.requestFriend("Sally H","Joe T")
 }
