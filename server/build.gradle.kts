@@ -36,6 +36,13 @@ val helloWorldServerStartScripts = tasks.register<CreateStartScripts>("helloWorl
     classpath = tasks.named<CreateStartScripts>("startScripts").get().classpath
 }
 
+tasks.register<Copy>("copyDistro") {
+    onlyIf { project.hasProperty("LOCAL_TEST_DIR") }
+    from(zipTree("$buildDir/distributions/server.zip"))
+    into(file(findProperty("LOCAL_TEST_DIR").toString().drop(1).dropLast(1)))
+}
+
+
 
 tasks.named("startScripts") {
     dependsOn(helloWorldServerStartScripts)

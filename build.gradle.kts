@@ -24,4 +24,5 @@ subprojects {
     apply(plugin="idea")
 }
 
+tasks
 //tasks.create("assemble").dependsOn(":server:installDist")

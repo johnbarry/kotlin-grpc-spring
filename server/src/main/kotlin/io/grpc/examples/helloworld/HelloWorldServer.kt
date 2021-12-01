@@ -84,14 +84,11 @@ open class HelloWorldServer : CommandLineRunner {
                 firstPerson = request.firstPerson
                 secondPerson = request.secondPerson
             }.apply {
-                kafkaWriter.write(
-                    Flux.just(
-                        Pair(
-                            "${firstPerson}_$secondPerson", JsonFormat.printer().print(this)
-                        )
-                    )
-                )
+                kafkaWriter.write(Flux.just(Pair("$firstPerson 2 $secondPerson", this)))
             }
+    }
+    private class FriendService : FriendServiceGrpcKt.FriendServiceCoroutineImplBase() {
+
     }
 
     override fun run(vararg args: String) {

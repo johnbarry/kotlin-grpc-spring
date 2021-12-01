@@ -26,3 +26,8 @@ tasks.named("startScripts") {
     dependsOn(helloWorldClientStartScripts)
 }
 
+tasks.register<Copy>("copyDistro") {
+    onlyIf { project.hasProperty("LOCAL_TEST_DIR") }
+    from(zipTree("$buildDir/distributions/client.zip"))
+    into(file(findProperty("LOCAL_TEST_DIR").toString().drop(1).dropLast(1)))
+}
