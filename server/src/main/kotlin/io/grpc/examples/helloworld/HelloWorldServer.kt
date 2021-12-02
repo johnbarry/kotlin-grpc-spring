@@ -78,28 +78,9 @@ open class HelloWorldServer : CommandLineRunner {
 
     private class FriendService : FriendServiceGrpcKt.FriendServiceCoroutineImplBase() {
 
-        data class ParseException(val key: String, val body: ByteArray) : Exception() {
+        data class ParseException(val key: String, val offset: Long) : Exception() {
             override fun toString(): String =
-                "parse error for key: $key, data = [[$body]]"
-
-            override fun equals(other: Any?): Boolean {
-                if (this === other) return true
-                if (javaClass != other?.javaClass) return false
-
-                other as ParseException
-
-                if (key != other.key) return false
-                if (!body.contentEquals(other.body)) return false
-
-                return true
-            }
-
-            override fun hashCode(): Int {
-                var result = key.hashCode()
-                result = 31 * result + body.contentHashCode()
-                return result
-            }
-
+                "parse error for key: $key, offset=$offset"
         }
 
         @Suppress("BlockingMethodInNonBlockingContext")
@@ -121,16 +102,15 @@ open class HelloWorldServer : CommandLineRunner {
                 topicName = FRIEND_REQUEST_TOPIC,
                 readEarliest = true
             )
-                .log(null, java.util.logging.Level.FINE)
                 .map {
-                    log.info("offset ${it.offset()}: ${it.key()}")
+                    log.debug("offset ${it.offset()}: ${it.key()}")
                     try {
                         NewFriendCommand.parseFrom(it.value())
                             .toBuilder()
                             .setKafkaOffset(it.offset())
                             .build()
                     } catch (ex: Exception) {
-                        throw ParseException(it.key(), it.value())
+                        throw ParseException(it.key(), it.offset())
                     }
                 }
                 .onErrorContinue { t: Throwable, _: Any  ->
