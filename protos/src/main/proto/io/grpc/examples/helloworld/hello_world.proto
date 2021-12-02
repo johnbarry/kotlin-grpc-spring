@@ -22,17 +22,14 @@ package helloworld;
 // The greeting service definition.
 service Greeter {
   // Sends a greeting
-  rpc SayHello (HelloRequest) returns (HelloReply) {}
-  rpc ListFriends (FriendListRequest) returns (stream FriendReply) {}
-}
-
-service FriendHelper {
-  rpc RequestFriend(MakeFriendRequest) returns (MakeFriendCommand) {}
+  rpc sayHello (HelloRequest) returns (HelloReply) {}
+  rpc listFriends (FriendListRequest) returns (stream FriendReply) {}
 }
 
 service FriendService {
-  rpc CmdMakeFriend(MakeFriendCommand) returns (NewFriendshipEvent) {}
-  rpc EventsNewFriendship(EventStreamRequest) returns (stream NewFriendshipEvent) {}
+  rpc requestFriend(FriendRequest) returns (NewFriendCommand) {}
+  rpc makeFriend(NewFriendCommand) returns (NewFriendshipEvent) {}
+  rpc friendCommands(EventStreamRequest) returns (stream NewFriendCommand) {}
 }
 
 
@@ -42,21 +39,24 @@ message FriendListRequest {
 
 message EventStreamRequest {}
 
-message MakeFriendRequest {
+message FriendRequest {
   string firstPerson = 1;
   string secondPerson = 2;
+  int64 kafkaOffset = 3;
 }
 
-message MakeFriendCommand {
+message NewFriendCommand {
   string key = 1;
   string firstPerson = 2;
   string secondPerson = 3;
+  int64 kafkaOffset = 4;
 }
 
 message NewFriendshipEvent {
   string firstPerson = 1;
   string secondPerson = 2;
   google.protobuf.Timestamp dated = 3;
+  int64 kafkaOffset = 4;
 }
 
 message  FriendReply {

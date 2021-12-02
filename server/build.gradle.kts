@@ -38,6 +38,7 @@ val helloWorldServerStartScripts = tasks.register<CreateStartScripts>("helloWorl
 
 tasks.register<Copy>("copyDistro") {
     onlyIf { project.hasProperty("LOCAL_TEST_DIR") }
+    dependsOn("installDist")
     from(zipTree("$buildDir/distributions/server.zip"))
     into(file(findProperty("LOCAL_TEST_DIR").toString().drop(1).dropLast(1)))
 }

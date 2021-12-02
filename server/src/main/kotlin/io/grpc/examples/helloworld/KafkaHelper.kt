@@ -10,43 +10,50 @@ import org.apache.kafka.common.serialization.StringSerializer
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import reactor.core.publisher.Flux
+import reactor.kafka.receiver.KafkaReceiver
+import reactor.kafka.receiver.ReceiverOptions
+import reactor.kafka.receiver.ReceiverRecord
 import reactor.kafka.sender.KafkaSender
 import reactor.kafka.sender.SenderOptions
 import reactor.kafka.sender.SenderRecord
 
+
 typealias KafkaPayload = ByteArray
 typealias KafkaKey = String
 
-abstract class KafkaConfig {
-    val SERVERS = "localhost:9092"
-    val KEY_SERIAL =  StringSerializer::class.java
-    val KEY_DESERIAL =  StringDeserializer::class.java
-    val VALUE_SERIAL = ByteArraySerializer::class.java
-    val VALUE_DESERIAL = ByteArrayDeserializer::class.java
-    val CLIENT_ID_PRODUCER = "command-writer"
-    val CLIENT_ID_CONSUMER = "command-reader"
-    val CLIENT_ID_GROUP = "command-reader-group"
-}
 
+object KafkaCommandEventHelper {
+    private const val SERVERS = "192.168.193.80:9092"
+    private val KEY_SERIAL = StringSerializer::class.java
+    private val KEY_DESERIAL = StringDeserializer::class.java
+    private val VALUE_SERIAL = ByteArraySerializer::class.java
+    private val VALUE_DESERIAL = ByteArrayDeserializer::class.java
+    private const val CLIENT_ID_PRODUCER = "command-writer"
+    private val log: Logger = LoggerFactory.getLogger(KafkaCommandEventHelper::class.java)
 
-class KafkaMessageWriter(private val topicName: String) : KafkaConfig() {
-
-    private val props: Map<String, Any> = mapOf(
+    private val writeProps: Map<String, Any> = mapOf(
         ProducerConfig.BOOTSTRAP_SERVERS_CONFIG to SERVERS,
         ProducerConfig.CLIENT_ID_CONFIG to CLIENT_ID_PRODUCER,
         ProducerConfig.ACKS_CONFIG to "1",
-        ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG to  KEY_SERIAL,
+        ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG to KEY_SERIAL,
         ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG to VALUE_SERIAL
     )
-    private val sender: KafkaSender<KafkaKey, KafkaPayload> = KafkaSender.create(SenderOptions.create(props))
 
-    fun write(kv: Flux<Pair<KafkaKey, GeneratedMessageV3>>) {
+    private fun readOptions(consumerName: String, groupName: String): Map<String, Any> =
+        mapOf(
+            ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG to SERVERS,
+            ConsumerConfig.CLIENT_ID_CONFIG to consumerName,
+            ConsumerConfig.GROUP_ID_CONFIG to groupName,
+            ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG to KEY_DESERIAL,
+            ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG to VALUE_DESERIAL
+        )
+
+    fun write(topicName: String, kv: Flux<Pair<KafkaKey, GeneratedMessageV3>>) {
         log.info("Start kafka write...")
         val newFlux = kv.map {
-            val payload = it.second.toByteArray()
-            SenderRecord.create(topicName,0, System.currentTimeMillis(), it.first, payload, it.first)
+            SenderRecord.create(topicName, 0, System.currentTimeMillis(), it.first, it.second.toByteArray(), it.first)
         }
-        sender.send (newFlux)
+        KafkaSender.create(SenderOptions.create<KafkaKey, KafkaPayload>(writeProps)).send(newFlux)
             .doOnError {
                 log.error("Kafka send failed: {}", it)
             }
@@ -57,22 +64,20 @@ class KafkaMessageWriter(private val topicName: String) : KafkaConfig() {
         log.info("Completed kafka write")
     }
 
-    companion object {
-        val log: Logger = LoggerFactory.getLogger(KafkaMessageWriter::class.java)
-    }
-}
+    fun read(
+        consumerName: String, groupName: String, topicName: String,
+        readEarliest: Boolean = false
+    ): Flux<ReceiverRecord<KafkaKey /* = kotlin.String */, KafkaPayload /* = kotlin.ByteArray */>> =
+        with(
+            if (readEarliest) mapOf(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG to "earliest") else mapOf<String, Any>()
+        ) {
+            KafkaReceiver.create(
+                ReceiverOptions.create<KafkaKey, KafkaPayload>(readOptions(consumerName, groupName) + this)
+                    .subscription(setOf(topicName))
+                    .addAssignListener { log.debug("partitions assigned {}", it) }
+                    .addRevokeListener { log.debug("partitions revoked {}", it) }
+            ).receive()
+        }
 
-class KafkaMessageReader(private val topicName: String, val readEarliest: Boolean = false) : KafkaConfig()  {
 
-    private val props: Map<String, Any> = mapOf(
-        ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG to SERVERS,
-        ConsumerConfig.CLIENT_ID_CONFIG to CLIENT_ID_CONSUMER,
-        ConsumerConfig.GROUP_ID_CONFIG to CLIENT_ID_GROUP,
-        ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG to KEY_DESERIAL,
-        ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG to VALUE_DESERIAL
-    ) + (if (readEarliest) mapOf(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG to "earliest") else mapOf<String,Any>())
-
-    companion object {
-        val log: Logger = LoggerFactory.getLogger(KafkaMessageWriter::class.java)
-    }
 }

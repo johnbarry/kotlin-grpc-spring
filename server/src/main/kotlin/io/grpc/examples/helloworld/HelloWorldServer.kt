@@ -16,7 +16,6 @@
 
 package io.grpc.examples.helloworld
 
-import com.google.protobuf.util.JsonFormat
 import io.grpc.Server
 import io.grpc.ServerBuilder
 import kotlinx.coroutines.flow.Flow
@@ -30,6 +29,8 @@ import org.springframework.boot.autoconfigure.SpringBootApplication
 import org.springframework.stereotype.Component
 import reactor.core.publisher.Flux
 
+const val FRIEND_REQUEST_TOPIC = "FriendRequest"
+
 @SpringBootApplication
 @Component
 open class HelloWorldServer : CommandLineRunner {
@@ -37,7 +38,7 @@ open class HelloWorldServer : CommandLineRunner {
     private val server: Server = ServerBuilder
         .forPort(port)
         .addService(HelloWorldService())
-        .addService(FriendHelperService())
+        .addService(FriendService())
         .build()
 
     private fun start() {
@@ -75,19 +76,68 @@ open class HelloWorldServer : CommandLineRunner {
                 .asFlow()
     }
 
-    private class FriendHelperService : FriendHelperGrpcKt.FriendHelperCoroutineImplBase() {
-        private val kafkaWriter = KafkaMessageWriter("FriendRequest")
+    private class FriendService : FriendServiceGrpcKt.FriendServiceCoroutineImplBase() {
+
+        data class ParseException(val key: String, val body: ByteArray) : Exception() {
+            override fun toString(): String =
+                "parse error for key: $key, data = [[$body]]"
+
+            override fun equals(other: Any?): Boolean {
+                if (this === other) return true
+                if (javaClass != other?.javaClass) return false
+
+                other as ParseException
+
+                if (key != other.key) return false
+                if (!body.contentEquals(other.body)) return false
+
+                return true
+            }
+
+            override fun hashCode(): Int {
+                var result = key.hashCode()
+                result = 31 * result + body.contentHashCode()
+                return result
+            }
+
+        }
 
         @Suppress("BlockingMethodInNonBlockingContext")
-        override suspend fun requestFriend(request: MakeFriendRequest): MakeFriendCommand =
-            makeFriendCommand {
+        override suspend fun requestFriend(request: FriendRequest): NewFriendCommand =
+            newFriendCommand {
                 firstPerson = request.firstPerson
                 secondPerson = request.secondPerson
             }.apply {
-                kafkaWriter.write(Flux.just(Pair("$firstPerson 2 $secondPerson", this)))
+                KafkaCommandEventHelper.write(
+                    FRIEND_REQUEST_TOPIC,
+                    Flux.just(Pair("$firstPerson 2 $secondPerson", this))
+                )
             }
-    }
-    private class FriendService : FriendServiceGrpcKt.FriendServiceCoroutineImplBase() {
+
+        override fun friendCommands(request: EventStreamRequest): Flow<NewFriendCommand> =
+            KafkaCommandEventHelper.read(
+                consumerName = "friendRequests-list",
+                groupName = "friendRequests-list-grp",
+                topicName = FRIEND_REQUEST_TOPIC,
+                readEarliest = true
+            )
+                .log(null, java.util.logging.Level.FINE)
+                .map {
+                    log.info("offset ${it.offset()}: ${it.key()}")
+                    try {
+                        NewFriendCommand.parseFrom(it.value())
+                            .toBuilder()
+                            .setKafkaOffset(it.offset())
+                            .build()
+                    } catch (ex: Exception) {
+                        throw ParseException(it.key(), it.value())
+                    }
+                }
+                .onErrorContinue { t: Throwable, _: Any  ->
+                    log.error( t.toString() )
+                }
+                .asFlow()
+
 
     }
 
