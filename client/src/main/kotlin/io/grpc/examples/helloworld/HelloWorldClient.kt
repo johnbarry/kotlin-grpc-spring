@@ -37,10 +37,10 @@ class HelloWorldClient(private val channel: ManagedChannel) : Closeable {
         stub.listFriends(FriendListRequest.getDefaultInstance())
             .collect() //::println)
 
-    suspend fun requestFriend(firstName: String, secondName: String) =
+    suspend fun requestFriend(person1: Pair<String,String>, person2: Pair<String,String>) =
         friendServiceStub.requestFriend(friendRequest {
-            firstPerson = firstName
-            secondPerson = secondName
+            firstPerson = person { forename = person1.first; surname = person1.second  }
+            secondPerson = person { forename = person2.first; surname = person2.second  }
         })
 
     suspend fun friendRequests() =
@@ -49,6 +49,11 @@ class HelloWorldClient(private val channel: ManagedChannel) : Closeable {
                 println( it.toString()  )
             }
 
+    suspend fun makeOutstandingFriends() =
+        friendServiceStub.makeOutstandingFriends(EventStreamRequest.getDefaultInstance())
+            .collect {
+                println( it.toString()  )
+            }
 
     override fun close() {
         channel.shutdown().awaitTermination(5, TimeUnit.SECONDS)
@@ -69,9 +74,13 @@ suspend fun main(args: Array<String>) {
     val user = args.singleOrNull() ?: "world"
     client.greet(user)
     client.getFriends()
-    client.requestFriend("Sally H", "Joe T")
-    client.requestFriend("Harry E", "Stephanie U")
+    client.requestFriend(Pair("Sally","H"), Pair("Joe","T"))
+    client.requestFriend(Pair("Harry","E"), Pair("Stephanie","U"))
 
     println("List of friend requests...")
     client.friendRequests()
+    println(".. List of friend requests")
+
+    println("Execute friend requests, returns events...")
+    client.makeOutstandingFriends()
 }

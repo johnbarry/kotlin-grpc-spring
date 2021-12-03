@@ -30,8 +30,16 @@ service FriendService {
   rpc requestFriend(FriendRequest) returns (NewFriendCommand) {}
   rpc makeFriend(NewFriendCommand) returns (NewFriendshipEvent) {}
   rpc friendCommands(EventStreamRequest) returns (stream NewFriendCommand) {}
+  rpc makeOutstandingFriends(EventStreamRequest) returns (stream NewFriendshipEvent) {}
 }
 
+message Person {
+  string forename = 1;
+  string surname = 2;
+  string addressLine1 = 3;
+  string addressLine2 = 4;
+  string city = 5;
+}
 
 message FriendListRequest {
 
@@ -40,27 +48,27 @@ message FriendListRequest {
 message EventStreamRequest {}
 
 message FriendRequest {
-  string firstPerson = 1;
-  string secondPerson = 2;
+  Person firstPerson = 1;
+  Person secondPerson = 2;
   int64 kafkaOffset = 3;
 }
 
 message NewFriendCommand {
   string key = 1;
-  string firstPerson = 2;
-  string secondPerson = 3;
+  Person firstPerson = 2;
+  Person secondPerson = 3;
   int64 kafkaOffset = 4;
 }
 
 message NewFriendshipEvent {
-  string firstPerson = 1;
-  string secondPerson = 2;
+  Person firstPerson = 1;
+  Person secondPerson = 2;
   google.protobuf.Timestamp dated = 3;
   int64 kafkaOffset = 4;
 }
 
 message  FriendReply {
-  string name = 1;
+  Person person = 1;
 }
 
 // The request message containing the user's name.
