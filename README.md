@@ -12,10 +12,10 @@
 
 The example sources are organized into the following top-level folders:
 
-- [protos]: `.proto` files (shared across examples)
-- [stub]: regular Java & Kotlin stub artifacts from [protos]
-- [client](client): Kotlin clients based on regular [stub] artifacts
-- [server](server): Kotlin servers based on regular [stub] artifacts
+- [protos](protos) `.proto` files (shared across examples)
+- [stub](stub) regular Java & Kotlin stub artifacts from [protos](protos)
+- [client](client): Kotlin clients based on regular [stub](stub) artifacts
+- [server](server): Kotlin servers based on regular [stub](stub) artifacts
 
 ## Server (Kafka) setup
 
