@@ -84,16 +84,18 @@ class HelloWorldClient(private val channel: ManagedChannel) : Closeable {
     }
 
     suspend fun backpressureDemo(countTo: Int=100000, delayMillis: Long = 10, withFiller: Boolean = true) =
-        stub.backPressureDemo ( backPressureDemoRequest {
-            number = countTo
-            addFiller = withFiller
-        })
-            .collect {
-                val n = it.number
-                if (n % 100 == 1)
-                    println("Client backpressure demo: $n")
-                if (delayMillis >0) delay(delayMillis)
-            }
+        (if (withFiller) 100 else 10000 ).let { reportEvery ->
+            stub.backPressureDemo ( backPressureDemoRequest {
+                number = countTo
+                addFiller = withFiller
+            })
+                .collect {
+                    val n = it.number
+                    if (n % reportEvery == 0)
+                        println("Client backpressure demo: $n")
+                    if (delayMillis >0) delay(delayMillis)
+                }
+        }
 
 
 
@@ -112,12 +114,12 @@ class HelloWorldClient(private val channel: ManagedChannel) : Closeable {
 suspend fun main(args: Array<String>) {
     val port = 50051
 
-    val channel = ManagedChannelBuilder.forAddress("localhost", port).usePlaintext().build()
+    val channel = ManagedChannelBuilder.forAddress( if (args.isNotEmpty()) args[0] else  "localhost", port).usePlaintext().build()
 
     val client = HelloWorldClient(channel)
 
     println("=========> Small message no client delay")
-    client.backpressureDemo(countTo = 500_000, delayMillis = 0, withFiller = false)
+    client.backpressureDemo(countTo = 330_000, delayMillis = 0, withFiller = false)
 
     println("=========> Large message 10ms client delay")
     client.backpressureDemo(countTo = 2_000, delayMillis = 10, withFiller = true)

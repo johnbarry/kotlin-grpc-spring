@@ -75,18 +75,20 @@ open class HelloWorldServer : CommandLineRunner {
         }
 
         override fun backPressureDemo(request: BackPressureDemoRequest): Flow<ANumber> =
-            Flux.range(1, request.number)
-                .map{ aNumber {
-                    number = it
-                    if (request.addFiller)
-                        (1..it).forEach { _ -> filler.add("BlahBlahBlah") }
-                } }
-                .doOnNext {
-                    val n = it.number
-                    if (n % 100 == 1)
-                        log.info("Server backpressure demo: $n")
-                }
-                .asFlow()
+            (if (request.addFiller) 100 else 10_000).let { reportEvery ->
+                Flux.range(1, request.number)
+                    .map{ aNumber {
+                        number = it
+                        if (request.addFiller)
+                            (1..it).forEach { _ -> filler.add("BlahBlahBlah") }
+                    } }
+                    .doOnNext {
+                        val n = it.number
+                        if (n % reportEvery == 0)
+                            log.info("Server backpressure demo: $n")
+                    }
+                    .asFlow()
+            }
     }
 
     private class FriendService : FriendServiceGrpcKt.FriendServiceCoroutineImplBase() {
