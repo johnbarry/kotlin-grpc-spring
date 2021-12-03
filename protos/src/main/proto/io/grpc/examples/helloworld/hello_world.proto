@@ -23,6 +23,7 @@ package helloworld;
 service Greeter {
   // Sends a greeting
   rpc sayHello (HelloRequest) returns (HelloReply) {}
+  rpc backPressureDemo(BackPressureDemoRequest) returns (stream ANumber) {}
 }
 
 service FriendService {
@@ -35,6 +36,16 @@ service FriendService {
   rpc makeFriend(NewFriendCommand) returns (NewFriendshipEvent) {}
   rpc friendCommands(EventStreamRequest) returns (stream NewFriendCommand) {}
   rpc makeOutstandingFriends(EventStreamRequest) returns (stream NewFriendshipEvent) {}
+}
+
+message ANumber {
+  uint32 number = 1;
+  repeated string filler = 2;
+}
+
+message BackPressureDemoRequest {
+  uint32 number = 1;
+  bool addFiller = 2;
 }
 
 message Person {

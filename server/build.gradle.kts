@@ -14,11 +14,7 @@ dependencies {
     runtimeOnly("io.grpc:grpc-netty:${rootProject.ext["grpcVersion"]}")
 }
 
-dependencyManagement {
-    imports {
-        mavenBom ("org.springframework.cloud:spring-cloud-dependencies:${rootProject.ext["springCloudVersion"]}")
-    }
-}
+
 springBoot {
  setProperty("mainClassName", "io.grpc.examples.helloworld.HelloWorldServer")
 }

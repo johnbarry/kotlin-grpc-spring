@@ -73,6 +73,20 @@ open class HelloWorldServer : CommandLineRunner {
             message = "Hello ${request.name}"
             log.info("Client sent sayHello - responding with $message")
         }
+
+        override fun backPressureDemo(request: BackPressureDemoRequest): Flow<ANumber> =
+            Flux.range(1, request.number)
+                .map{ aNumber {
+                    number = it
+                    if (request.addFiller)
+                        (1..it).forEach { _ -> filler.add("BlahBlahBlah") }
+                } }
+                .doOnNext {
+                    val n = it.number
+                    if (n % 100 == 1)
+                        log.info("Server backpressure demo: $n")
+                }
+                .asFlow()
     }
 
     private class FriendService : FriendServiceGrpcKt.FriendServiceCoroutineImplBase() {
