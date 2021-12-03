@@ -98,13 +98,8 @@ open class HelloWorldServer : CommandLineRunner {
         private fun timeNow(): Timestamp = timestamp { seconds = Instant.now().epochSecond }
 
         @Suppress("UNUSED_PARAMETER")
-        fun friendCommandsFlux(request: EventStreamRequest): Flux<NewFriendCommand> =
-            KafkaCommandEventHelper.read(
-                consumerName = "friendRequests-list",
-                groupName = "friendRequests-list-grp",
-                topicName = NEW_FRIEND_CMD_TOPIC,
-                readEarliest = true
-            )
+        fun friendCommandsFlux(request: EventStreamRequest, consumer: String, group: String, readEarliest: Boolean): Flux<NewFriendCommand> =
+            KafkaCommandEventHelper.read(consumer, group, NEW_FRIEND_CMD_TOPIC, readEarliest)
                 .map {
                     try {
                         NewFriendCommand.parseFrom(it.value())
@@ -123,7 +118,7 @@ open class HelloWorldServer : CommandLineRunner {
                 }
 
         override fun friendCommands(request: EventStreamRequest): Flow<NewFriendCommand> =
-                friendCommandsFlux(request).asFlow()
+                friendCommandsFlux(request, "friendCommands-list","friendCommands-list-grp", true ).asFlow()
 
         override suspend fun makeFriend(request: NewFriendCommand): NewFriendshipEvent = cmdMakeFriend(request)
 
@@ -137,7 +132,7 @@ open class HelloWorldServer : CommandLineRunner {
             }
 
         override fun makeOutstandingFriends(request: EventStreamRequest): Flow<NewFriendshipEvent> =
-            friendCommandsFlux(request)
+            friendCommandsFlux(request, "friendCommands-exec","friendCommands-exec-grp", true)
                 .map { cmdMakeFriend(it) }
                 .asFlow()
 
