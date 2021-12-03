@@ -18,13 +18,13 @@ import reactor.kafka.sender.KafkaSender
 import reactor.kafka.sender.SenderOptions
 import reactor.kafka.sender.SenderRecord
 import java.time.Duration
-import java.util.*
+import java.util.UUID
 
 typealias KafkaPayload = ByteArray
 typealias KafkaKey = String
 
 object KafkaCommandEventHelper {
-    private const val SERVERS = "192.168.193.80:9092"
+    private val SERVERS: String = System.getenv("KAFKA_SERVER")
     private val KEY_SERIAL = StringSerializer::class.java
     private val KEY_DES = StringDeserializer::class.java
     private val VALUE_SERIAL = ByteArraySerializer::class.java
@@ -71,7 +71,6 @@ object KafkaCommandEventHelper {
     ): Flux<ConsumerRecord<KafkaKey /* = kotlin.String */, KafkaPayload /* = kotlin.ByteArray */>> =
             KafkaReceiver.create(
                 ReceiverOptions.create<KafkaKey, KafkaPayload>(readOptions(consumerName, groupName))
-                    //.pollTimeout(Duration.ofSeconds(1))
                     .subscription(setOf(topicName))
                     .addAssignListener { parts ->
                         if (readEarliest)

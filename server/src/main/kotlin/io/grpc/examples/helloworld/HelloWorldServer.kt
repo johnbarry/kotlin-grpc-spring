@@ -21,7 +21,9 @@ import com.google.protobuf.timestamp
 import io.grpc.Server
 import io.grpc.ServerBuilder
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.asFlow
 import kotlinx.coroutines.reactive.asFlow
+import kotlinx.coroutines.reactor.asFlux
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import org.springframework.boot.CommandLineRunner
@@ -34,6 +36,7 @@ import java.time.Instant
 
 const val NEW_FRIEND_CMD_TOPIC = "NewFriendCommand"
 const val NEW_FRIEND_EVENT_TOPIC = "NewFriendEvent"
+const val PERSON_UPDATES_DATA_TOPIC = "PersonDataUpdates"
 
 @SpringBootApplication
 @Component
@@ -70,14 +73,6 @@ open class HelloWorldServer : CommandLineRunner {
             message = "Hello ${request.name}"
             log.info("Client sent sayHello - responding with $message")
         }
-
-        override fun listFriends(request: FriendListRequest): Flow<FriendReply> =
-            Flux.fromIterable(
-                listOf("Harry", "Sally", "Joe", "Mary", "Ted", "Jack", "Stephanie", "Steven")
-                    .flatMap { name -> ('A'..'Z').map { Pair(name, it.toString()) } }
-            )
-                .map { friendReply { person = person { forename = it.first; surname = it.second } } }
-                .asFlow()
     }
 
     private class FriendService : FriendServiceGrpcKt.FriendServiceCoroutineImplBase() {
@@ -98,7 +93,12 @@ open class HelloWorldServer : CommandLineRunner {
         private fun timeNow(): Timestamp = timestamp { seconds = Instant.now().epochSecond }
 
         @Suppress("UNUSED_PARAMETER")
-        fun friendCommandsFlux(request: EventStreamRequest, consumer: String, group: String, readEarliest: Boolean): Flux<NewFriendCommand> =
+        fun friendCommandsFlux(
+            request: EventStreamRequest,
+            consumer: String,
+            group: String,
+            readEarliest: Boolean
+        ): Flux<NewFriendCommand> =
             KafkaCommandEventHelper.read(consumer, group, NEW_FRIEND_CMD_TOPIC, readEarliest)
                 .map {
                     try {
@@ -118,7 +118,7 @@ open class HelloWorldServer : CommandLineRunner {
                 }
 
         override fun friendCommands(request: EventStreamRequest): Flow<NewFriendCommand> =
-                friendCommandsFlux(request, "friendCommands-list","friendCommands-list-grp", true ).asFlow()
+            friendCommandsFlux(request, "friendCommands-list", "friendCommands-list-grp", true).asFlow()
 
         override suspend fun makeFriend(request: NewFriendCommand): NewFriendshipEvent = cmdMakeFriend(request)
 
@@ -132,9 +132,42 @@ open class HelloWorldServer : CommandLineRunner {
             }
 
         override fun makeOutstandingFriends(request: EventStreamRequest): Flow<NewFriendshipEvent> =
-            friendCommandsFlux(request, "friendCommands-exec","friendCommands-exec-grp", true)
+            friendCommandsFlux(request, "friendCommands-exec", "friendCommands-exec-grp", true)
                 .map { cmdMakeFriend(it) }
                 .asFlow()
+
+        override suspend fun generateTestData(request: Empty): Empty {
+            KafkaCommandEventHelper.write(PERSON_UPDATES_DATA_TOPIC,
+                (PersonMock.originalRecords + PersonMock.updatedRecords)
+                    .asFlow()
+                    .asFlux()
+                    .log()
+                    .map { p -> Pair(p.changeId.toString(), p) }
+            )
+            return Empty.getDefaultInstance()
+        }
+
+        private fun peopleUpdateFlux() =
+            KafkaCommandEventHelper.read("person-list", "person-list-group", PERSON_UPDATES_DATA_TOPIC, true)
+                .map { PersonChange.parseFrom(it.value()) }
+
+        override fun listPeopleChanges(request: Empty): Flow<PersonChange> =
+            peopleUpdateFlux().asFlow()
+
+        override suspend fun changeCallback(request: PersonChangeEvent): PersonChange =
+            peopleUpdateFlux()
+                .filter { it.changeId == request.changeId  }
+                .blockFirst() ?: PersonChange.getDefaultInstance()
+
+        override fun peopleChangeEvents(request: Empty): Flow<PersonChangeEvent> =
+            peopleUpdateFlux()
+                .map { p -> personChangeEvent {
+                   changeId = p.changeId
+                   id = p.person.id
+                   operation = p.operation
+                }}
+                .asFlow()
+
 
     }
 

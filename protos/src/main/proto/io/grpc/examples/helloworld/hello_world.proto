@@ -23,10 +23,14 @@ package helloworld;
 service Greeter {
   // Sends a greeting
   rpc sayHello (HelloRequest) returns (HelloReply) {}
-  rpc listFriends (FriendListRequest) returns (stream FriendReply) {}
 }
 
 service FriendService {
+  rpc generateTestData (Empty) returns (Empty) {}
+  rpc peopleChangeEvents (Empty) returns (stream PersonChangeEvent) {}
+  rpc listPeopleChanges (Empty) returns (stream PersonChange) {}
+  rpc changeCallback(PersonChangeEvent) returns (PersonChange) {}
+
   rpc requestFriend(FriendRequest) returns (NewFriendCommand) {}
   rpc makeFriend(NewFriendCommand) returns (NewFriendshipEvent) {}
   rpc friendCommands(EventStreamRequest) returns (stream NewFriendCommand) {}
@@ -34,6 +38,7 @@ service FriendService {
 }
 
 message Person {
+  uint64 id = 6;
   string forename = 1;
   string surname = 2;
   string addressLine1 = 3;
@@ -41,9 +46,30 @@ message Person {
   string city = 5;
 }
 
+message PersonChange {
+  string changeId = 1;
+  uint64 version = 2;
+  Person person = 3;
+  enum Operation {
+    UNKNOWN = 0;
+    CREATE = 1;
+    UPDATE = 2;
+    DELETE = 3;
+  }
+  Operation operation = 4;
+}
+
+message PersonChangeEvent {
+  string changeId = 1;
+  uint64 id = 2;
+  PersonChange.Operation operation = 3;
+}
+
 message FriendListRequest {
 
 }
+
+message Empty {}
 
 message EventStreamRequest {}
 

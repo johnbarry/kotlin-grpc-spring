@@ -20,6 +20,9 @@ import io.grpc.ManagedChannel
 import io.grpc.ManagedChannelBuilder
 import io.grpc.examples.helloworld.GreeterGrpcKt.GreeterCoroutineStub
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.take
 import java.io.Closeable
 import java.util.concurrent.TimeUnit
 
@@ -33,27 +36,54 @@ class HelloWorldClient(private val channel: ManagedChannel) : Closeable {
         println("Received: ${response.message}")
     }
 
-    suspend fun getFriends() =
-        stub.listFriends(FriendListRequest.getDefaultInstance())
-            .collect() //::println)
+    suspend fun listPeople(surnameContains: String? = null, limit: Int? = null, operation: PersonChange.Operation? = null) {
+        friendServiceStub.listPeopleChanges(Empty.getDefaultInstance())
+            .let { base ->
+                surnameContains?.let {
+                    base.filter { p -> p.person.surname.contains(it) }
+                } ?: base
+            }
+            .let { base ->
+                operation?.let {
+                    base.filter { p -> p.operation  == it }
+                } ?: base
+            }
+            .let { filtered ->
+                limit?.let {
+                    filtered.take(it)
+                } ?: filtered
+            }
+            .collect { println(it) }
+    }
 
-    suspend fun requestFriend(person1: Pair<String,String>, person2: Pair<String,String>) =
+    suspend fun requestFriend(person1: Pair<String, String>, person2: Pair<String, String>) =
         friendServiceStub.requestFriend(friendRequest {
-            firstPerson = person { forename = person1.first; surname = person1.second  }
-            secondPerson = person { forename = person2.first; surname = person2.second  }
+            firstPerson = person { forename = person1.first; surname = person1.second }
+            secondPerson = person { forename = person2.first; surname = person2.second }
         })
 
     suspend fun friendRequests() =
         friendServiceStub.friendCommands(EventStreamRequest.getDefaultInstance())
             .collect {
-                println( it.toString()  )
+                println(it.toString())
             }
 
     suspend fun makeOutstandingFriends() =
         friendServiceStub.makeOutstandingFriends(EventStreamRequest.getDefaultInstance())
             .collect {
-                println( it.toString()  )
+                println(it.toString())
             }
+
+    suspend fun generateTestData() = friendServiceStub.generateTestData(Empty.getDefaultInstance())
+
+    suspend fun firstCallback()  {
+        val firstOne = friendServiceStub.peopleChangeEvents(Empty.getDefaultInstance()).first()
+        val res = friendServiceStub.changeCallback(firstOne)
+        println("First change was $firstOne")
+        println("Details: $res")
+    }
+
+
 
     override fun close() {
         channel.shutdown().awaitTermination(5, TimeUnit.SECONDS)
@@ -71,11 +101,25 @@ suspend fun main(args: Array<String>) {
 
     val client = HelloWorldClient(channel)
 
+    client.generateTestData()
+
+    client.firstCallback()
+
+    println("First 5 creations ...")
+    client.listPeople(limit = 5, operation=PersonChange.Operation.CREATE)
+
+    println("=======================================================")
+
+    println("First 5 B-B updates...")
+    client.listPeople(surnameContains = "B-B", limit = 5, operation=PersonChange.Operation.UPDATE)
+    println("=======================================================")
+
+    return
+
     val user = args.singleOrNull() ?: "world"
     client.greet(user)
-    client.getFriends()
-    client.requestFriend(Pair("Sally","H"), Pair("Joe","T"))
-    client.requestFriend(Pair("Harry","E"), Pair("Stephanie","U"))
+    client.requestFriend(Pair("Sally", "H"), Pair("Joe", "T"))
+    client.requestFriend(Pair("Harry", "E"), Pair("Stephanie", "U"))
 
     println("List of friend requests...")
     client.friendRequests()
