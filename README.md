@@ -23,6 +23,31 @@ You will need to set KAFKA_SERVER environment variable to Kafka address before r
 
 e.g. KAFKA_SERVER=localhost:9092
 
+## gRPC for streaming, callbacks and combined
+
+gRPC allows a single API to combine streaming and regular request/response callbacks..
+
+```protobuf
+service FriendService {
+  rpc peopleChangeEvents (Empty) returns (stream PersonChangeEvent) {}
+  rpc listPeopleChanges (Empty) returns (stream PersonChange) {}
+  rpc changeCallback(PersonChangeEvent) returns (PersonChange) {}
+}
+```
+
+### Separate stream and callback
+
+- _peopleChangeEvents()_ gets a stream of events where each event is a small notification that the person record has changed
+- _changeCallBack()_ takes the event and gets the full details of the record
+
+This is using the server-side streaming feature of gRPC.
+
+### Combined stream and callback
+
+- _listPeopleChanges()_ combines the 2 within the service (server) code returning full details of all changed records
+
+This is using the server-side streaming feature of gRPC.
+
 ## Backpressure demo
 
 HTTP/2, gRPC and Spring Reactor all have backpressure so we can stream server thru to client:
