@@ -26,9 +26,8 @@ import kotlinx.coroutines.reactive.asFlow
 import kotlinx.coroutines.reactor.asFlux
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
-import org.springframework.boot.CommandLineRunner
-import org.springframework.boot.SpringApplication
-import org.springframework.boot.WebApplicationType
+import org.springframework.boot.*
+import org.springframework.boot.autoconfigure.EnableAutoConfiguration
 import org.springframework.boot.autoconfigure.SpringBootApplication
 import org.springframework.stereotype.Component
 import reactor.core.publisher.Flux
@@ -39,8 +38,9 @@ const val NEW_FRIEND_EVENT_TOPIC = "NewFriendEvent"
 const val PERSON_UPDATES_DATA_TOPIC = "PersonDataUpdates"
 
 @SpringBootApplication
+@EnableAutoConfiguration
 @Component
-open class HelloWorldServer : CommandLineRunner {
+open class HelloWorldServer : ApplicationRunner {
     private val port = 50051
     private val server: Server = ServerBuilder
         .forPort(port)
@@ -186,16 +186,15 @@ open class HelloWorldServer : CommandLineRunner {
 
 
     }
+    companion object {
+        val log: Logger = LoggerFactory.getLogger(HelloWorldServer::class.java)
+    }
 
-    override fun run(vararg args: String) {
+    override fun run(args: ApplicationArguments?) {
         log.info("Starting grpc Server")
         val server = HelloWorldServer()
         server.start()
         server.blockUntilShutdown()
-    }
-
-    companion object {
-        val log: Logger = LoggerFactory.getLogger(HelloWorldServer::class.java)
     }
 
 }
@@ -203,6 +202,6 @@ open class HelloWorldServer : CommandLineRunner {
 fun main(args: Array<String>) {
     HelloWorldServer.log.info("Starting up spring...")
     val app = SpringApplication(HelloWorldServer::class.java)
-    app.webApplicationType = WebApplicationType.NONE
+    app.webApplicationType = WebApplicationType.REACTIVE
     app.run(*args)
 }

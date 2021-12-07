@@ -159,3 +159,63 @@ Client backpressure demo: 1800
 Client backpressure demo: 1900
 2021-12-03 16:58:43.749  INFO 15367 --- [atcher-worker-2] i.g.e.helloworld.HelloWorldServer        : Server backpressure demo: 2000
 ```
+
+## Run REST server and gRPC server
+
+Implemented a REST endpoint to call the underlying data stream (_Flux_) used by the gRPC server but convert the protobuf results to JSON.
+
+### Running as both web server and gRPC server
+
+Main class extends _ApplicationRunner_ and startup is _REACTIVE_ web type 
+
+```kotlin
+open class HelloWorldServer : ApplicationRunner {
+    override fun run(args: ApplicationArguments?) {
+        val server = HelloWorldServer()
+        server.start()
+    }
+}
+
+fun main(args: Array<String>) {
+    val app = SpringApplication(HelloWorldServer::class.java)
+    app.webApplicationType = WebApplicationType.REACTIVE
+    app.run(*args)
+}
+```
+
+### Router
+
+```kotlin
+@Configuration
+open class PersonRouter(private val handler: PersonHandler) {
+
+    @Bean
+    open fun theRouter() = router {
+        (accept(APPLICATION_JSON) and "/people").invoke ( handler::listPeople )
+    }
+}
+```
+
+### Handler
+
+- _PersonMock.testNames.asFlow().asFlux()_ simulates the underlying _**Flux**_ that would be used to create gRPC stream
+- The _**asJson()**_ invokes the one line function to render protobuf into json
+- WebFlux inserts the data from the **_Flux_** as the response body 
+
+```kotlin
+// Extension function
+fun Person.asJson(): String = JsonFormat.printer().print(this)
+
+@Component
+class PersonHandler {
+    fun listPeople(request: ServerRequest): Mono<ServerResponse> =
+        PersonMock.testNames.asFlow().asFlux()
+            .map{ it.asJson() + "\n"}
+            .let { dataStream ->
+                ServerResponse.ok()
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(BodyInserters.fromPublisher(dataStream, String::class.java))
+            }
+}
+```
+

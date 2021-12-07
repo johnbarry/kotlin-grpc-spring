@@ -31,7 +31,7 @@ fun Person.update() = this.let { x ->
 }
 
 object PersonMock {
-    private val testNames by lazy {
+    val testNames: Sequence<Person> by lazy {
         ('A'..'Z').let { a2z ->
             a2z.flatMap { a -> a2z.map { b -> "$a-$b" } }
         }.let { surnames ->

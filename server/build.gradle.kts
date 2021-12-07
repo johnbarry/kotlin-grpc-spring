@@ -10,6 +10,7 @@ plugins {
 dependencies {
     implementation(project(":stub"))
     implementation ("org.springframework.boot:spring-boot-starter-actuator")
+    implementation ("org.springframework.boot:spring-boot-starter-webflux")
     implementation( "io.projectreactor.kafka:reactor-kafka:1.3.7")
     runtimeOnly("io.grpc:grpc-netty:${rootProject.ext["grpcVersion"]}")
 }
