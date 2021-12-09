@@ -28,9 +28,12 @@ service Greeter {
 
 service FriendService {
   rpc generateTestData (Empty) returns (Empty) {}
-  rpc peopleChangeEvents (Empty) returns (stream PersonChangeEvent) {}
   rpc listPeopleChanges (Empty) returns (stream PersonChange) {}
+  rpc peopleChangeEvents (Empty) returns (stream PersonChangeEvent) {}
   rpc changeCallback(PersonChangeEvent) returns (PersonChange) {}
+
+  rpc listPeople (Empty) returns (stream Person) {}
+  rpc getPerson(PersonId) returns (Person) {}
 
   rpc requestFriend(FriendRequest) returns (NewFriendCommand) {}
   rpc makeFriend(NewFriendCommand) returns (NewFriendshipEvent) {}
@@ -46,6 +49,10 @@ message ANumber {
 message BackPressureDemoRequest {
   uint32 number = 1;
   bool addFiller = 2;
+}
+
+message PersonId {
+  uint64 id = 1;
 }
 
 message Person {

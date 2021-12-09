@@ -183,39 +183,86 @@ fun main(args: Array<String>) {
 }
 ```
 
-### Router
+### REST built on gRPC
+
+A REST service could call the gRPC service directly, wrapping the gRPC service as REST ...
 
 ```kotlin
-@Configuration
-open class PersonRouter(private val handler: PersonHandler) {
+class PersonHandler {
+    private val service = FriendService()
 
-    @Bean
-    open fun theRouter() = router {
-        (accept(APPLICATION_JSON) and "/people").invoke ( handler::listPeople )
+    fun list(request: ServerRequest): Mono<ServerResponse> =
+        // the gRPC service call ...
+        service.listPeople().asRestResponse()
+
+    fun get(request: ServerRequest): Mono<ServerResponse> =
+        runBlocking {
+            // the gRPC service call ...
+            service.getPerson( personId {  id = request.pathVariable("id").toLong()  })
+                    .asRestResponse()
+        }
+
+```
+
+... which is routed as follows using Kotlin DSL: 
+
+```kotlin
+class PersonRouter(private val handler: PersonHandler) {
+
+    fun theRouter() = router {
+        accept(MediaType.APPLICATION_JSON).nest {
+            GET("/people").invoke(handler::list)
+            GET("/person/{id}").invoke(handler::get)
+        }
     }
 }
 ```
 
-### Handler
+### JSON handler
 
-- _PersonMock.testNames.asFlow().asFlux()_ simulates the underlying _**Flux**_ that would be used to create gRPC stream
-- The _**asJson()**_ invokes the one line function to render protobuf into json
-- WebFlux inserts the data from the **_Flux_** as the response body 
+Can use generic JSON handling across protobuf classes:
 
 ```kotlin
-// Extension function
-fun Person.asJson(): String = JsonFormat.printer().print(this)
+// Kotlin extension function
+fun GeneratedMessageV3.asJson(): String =
+    JsonFormat.printer().print(this)
+        .replace("\\n".toRegex(), "")
+        .replace("\\r".toRegex(), "")
 
-@Component
-class PersonHandler {
-    fun listPeople(request: ServerRequest): Mono<ServerResponse> =
-        PersonMock.testNames.asFlow().asFlux()
-            .map{ it.asJson() + "\n"}
-            .let { dataStream ->
-                ServerResponse.ok()
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .body(BodyInserters.fromPublisher(dataStream, String::class.java))
-            }
+fun Flux<GeneratedMessageV3>.asRestResponse(): Mono<ServerResponse> =
+    ServerResponse.ok()
+        .contentType(MediaType.APPLICATION_JSON)
+        .body(
+            BodyInserters.fromPublisher(
+                this.map { it.asJson() + "\n" },
+                String::class.java
+            )
+        )
+
+fun Flow<GeneratedMessageV3>.asRestResponse(): Mono<ServerResponse> =
+    asFlux().asRestResponse()
+
+fun GeneratedMessageV3.asRestResponse(): Mono<ServerResponse> =
+    Flux.just(this).asRestResponse()
+
 }
+```
+
+### Example
+
+http://localhost:8080/people
+
+```json lines
+{  "forename": "Harry",  "surname": "A-A"}
+{  "forename": "Harry",  "surname": "A-B",  "id": "1"}
+{  "forename": "Harry",  "surname": "A-C",  "id": "2"}
+{  "forename": "Harry",  "surname": "A-D",  "id": "3"}
+{  "forename": "Harry",  "surname": "A-E",  "id": "4"}
+```
+
+http://localhost:8080/person/4
+
+```json lines
+{  "forename": "Harry",  "surname": "A-E",  "id": "4"}
 ```
 

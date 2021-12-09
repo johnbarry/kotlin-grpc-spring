@@ -1,27 +1,44 @@
 package io.grpc.examples.helloworld
 
-
-import com.google.protobuf.util.JsonFormat
-import kotlinx.coroutines.flow.asFlow
-import kotlinx.coroutines.reactor.asFlux
+import kotlinx.coroutines.runBlocking
+import org.springframework.context.annotation.Bean
+import org.springframework.context.annotation.Configuration
 import org.springframework.http.MediaType
 import org.springframework.stereotype.Component
-import org.springframework.web.reactive.function.BodyInserters
 import org.springframework.web.reactive.function.server.ServerRequest
 import org.springframework.web.reactive.function.server.ServerResponse
+import org.springframework.web.reactive.function.server.router
 import reactor.core.publisher.Mono
 
-fun Person.asJson(): String = JsonFormat.printer().print(this)
-
 @Component
-class PersonHandler {
+class PersonHandler  {
+    private val service = FriendService()
+
     @Suppress("UNUSED_PARAMETER")
-    fun listPeople(request: ServerRequest): Mono<ServerResponse> =
-        PersonMock.testNames.asFlow().asFlux()
-            .map{ it.asJson() + "\n"}
-            .let { dataStream ->
-            ServerResponse.ok()
-                .contentType(MediaType.APPLICATION_JSON)
-                .body(BodyInserters.fromPublisher(dataStream, String::class.java))
+    fun list(request: ServerRequest): Mono<ServerResponse> =
+            // the gRPC service call ...
+            service.listPeople().asRestResponse()
+
+    fun get(request: ServerRequest): Mono<ServerResponse> =
+        runBlocking {
+                // the gRPC service call ...
+                service.getPerson(
+                    personId {
+                        id = request.pathVariable("id").toLong()
+                    })
+                    .asRestResponse()
         }
+}
+
+
+@Configuration
+open class PersonRouter(private val handler: PersonHandler) {
+
+    @Bean
+    open fun theRouter() = router {
+        accept(MediaType.APPLICATION_JSON).nest {
+            GET("/people").invoke(handler::list)
+            GET("/person/{id}").invoke(handler::get)
+        }
+    }
 }
