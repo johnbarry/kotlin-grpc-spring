@@ -191,11 +191,11 @@ A REST service could call the gRPC service directly, wrapping the gRPC service a
 class PersonHandler {
     private val service = FriendService()
 
-    fun list(request: ServerRequest): Mono<ServerResponse> =
+    fun list(request: ServerRequest): JsonResponse =
         // the gRPC service call ...
         service.listPeople().asRestResponse()
 
-    fun get(request: ServerRequest): Mono<ServerResponse> =
+    fun get(request: ServerRequest): JsonResponse =
         runBlocking {
             // the gRPC service call ...
             service.getPerson( personId {  id = request.pathVariable("id").toLong()  })
@@ -229,7 +229,7 @@ fun GeneratedMessageV3.asJson(): String =
         .replace("\\n".toRegex(), "")
         .replace("\\r".toRegex(), "")
 
-fun Flux<GeneratedMessageV3>.asRestResponse(): Mono<ServerResponse> =
+fun Flux<GeneratedMessageV3>.asRestResponse(): JsonResponse =
     ServerResponse.ok()
         .contentType(MediaType.APPLICATION_JSON)
         .body(
@@ -239,10 +239,10 @@ fun Flux<GeneratedMessageV3>.asRestResponse(): Mono<ServerResponse> =
             )
         )
 
-fun Flow<GeneratedMessageV3>.asRestResponse(): Mono<ServerResponse> =
+fun Flow<GeneratedMessageV3>.asRestResponse(): JsonResponse =
     asFlux().asRestResponse()
 
-fun GeneratedMessageV3.asRestResponse(): Mono<ServerResponse> =
+fun GeneratedMessageV3.asRestResponse(): JsonResponse =
     Flux.just(this).asRestResponse()
 
 }

@@ -6,20 +6,18 @@ import org.springframework.context.annotation.Configuration
 import org.springframework.http.MediaType
 import org.springframework.stereotype.Component
 import org.springframework.web.reactive.function.server.ServerRequest
-import org.springframework.web.reactive.function.server.ServerResponse
 import org.springframework.web.reactive.function.server.router
-import reactor.core.publisher.Mono
 
 @Component
 class PersonHandler  {
     private val service = FriendService()
 
     @Suppress("UNUSED_PARAMETER")
-    fun list(request: ServerRequest): Mono<ServerResponse> =
+    fun list(request: ServerRequest): JsonResponse =
             // the gRPC service call ...
             service.listPeople().asRestResponse()
 
-    fun get(request: ServerRequest): Mono<ServerResponse> =
+    fun get(request: ServerRequest): JsonResponse =
         runBlocking {
                 // the gRPC service call ...
                 service.getPerson(

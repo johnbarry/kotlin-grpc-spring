@@ -10,12 +10,14 @@ import org.springframework.web.reactive.function.server.ServerResponse
 import reactor.core.publisher.Flux
 import reactor.core.publisher.Mono
 
+typealias JsonResponse = Mono<ServerResponse>
+
 fun GeneratedMessageV3.asJson(): String =
     JsonFormat.printer().print(this)
         .replace("\\n".toRegex(), "")
         .replace("\\r".toRegex(), "")
 
-fun Flux<GeneratedMessageV3>.asRestResponse(): Mono<ServerResponse> =
+fun Flux<GeneratedMessageV3>.asRestResponse(): JsonResponse =
     ServerResponse.ok()
         .contentType(MediaType.APPLICATION_JSON)
         .body(
@@ -25,9 +27,9 @@ fun Flux<GeneratedMessageV3>.asRestResponse(): Mono<ServerResponse> =
             )
         )
 
-fun Flow<GeneratedMessageV3>.asRestResponse(): Mono<ServerResponse> =
+fun Flow<GeneratedMessageV3>.asRestResponse(): JsonResponse=
     asFlux().asRestResponse()
 
-fun GeneratedMessageV3.asRestResponse(): Mono<ServerResponse> =
+fun GeneratedMessageV3.asRestResponse(): JsonResponse =
     Flux.just(this).asRestResponse()
 
