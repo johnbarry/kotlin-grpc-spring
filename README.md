@@ -113,6 +113,7 @@ Can use generic JSON handling across protobuf classes:
 
 ```kotlin
 // Kotlin extension function
+// numbers output as strings - so this is overly simplistic
 fun GeneratedMessageV3.asJson(): String =
     JsonFormat.printer().print(this)
         .replace("\\n".toRegex(), "")
