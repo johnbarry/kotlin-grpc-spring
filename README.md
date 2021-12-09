@@ -48,6 +48,113 @@ This is using the server-side streaming feature of gRPC.
 
 This is using the server-side streaming feature of gRPC.
 
+
+## Run REST server and gRPC server
+
+Implemented a REST endpoint to call the underlying data stream (_Flux_) used by the gRPC server but convert the protobuf results to JSON.
+
+### Running as both web server and gRPC server
+
+Main class extends _ApplicationRunner_ and startup is _REACTIVE_ web type 
+
+```kotlin
+open class HelloWorldServer : ApplicationRunner {
+    override fun run(args: ApplicationArguments?) {
+        val server = HelloWorldServer()
+        server.start()
+    }
+}
+
+fun main(args: Array<String>) {
+    val app = SpringApplication(HelloWorldServer::class.java)
+    app.webApplicationType = WebApplicationType.REACTIVE
+    app.run(*args)
+}
+```
+
+### REST built on gRPC
+
+A REST service could call the gRPC service directly, wrapping the gRPC service as REST ...
+
+```kotlin
+class PersonHandler {
+    private val service = FriendService()
+
+    fun list(request: ServerRequest): JsonResponse =
+        // the gRPC service call ...
+        service.listPeople().asRestResponse()
+
+    fun get(request: ServerRequest): JsonResponse =
+        runBlocking {
+            // the gRPC service call ...
+            service.getPerson( personId {  id = request.pathVariable("id").toLong()  })
+                    .asRestResponse()
+        }
+
+```
+
+... which is routed as follows using Kotlin DSL: 
+
+```kotlin
+class PersonRouter(private val handler: PersonHandler) {
+
+    fun theRouter() = router {
+        accept(MediaType.APPLICATION_JSON).nest {
+            GET("/people").invoke(handler::list)
+            GET("/person/{id}").invoke(handler::get)
+        }
+    }
+}
+```
+
+### JSON handler
+
+Can use generic JSON handling across protobuf classes:
+
+```kotlin
+// Kotlin extension function
+fun GeneratedMessageV3.asJson(): String =
+    JsonFormat.printer().print(this)
+        .replace("\\n".toRegex(), "")
+        .replace("\\r".toRegex(), "")
+
+fun Flux<GeneratedMessageV3>.asRestResponse(): JsonResponse =
+    ServerResponse.ok()
+        .contentType(MediaType.APPLICATION_JSON)
+        .body(
+            BodyInserters.fromPublisher(
+                this.map { it.asJson() + "\n" },
+                String::class.java
+            )
+        )
+
+fun Flow<GeneratedMessageV3>.asRestResponse(): JsonResponse =
+    asFlux().asRestResponse()
+
+fun GeneratedMessageV3.asRestResponse(): JsonResponse =
+    Flux.just(this).asRestResponse()
+
+}
+```
+
+### Example
+
+http://localhost:8080/people
+
+```json lines
+{  "forename": "Harry",  "surname": "A-A"}
+{  "forename": "Harry",  "surname": "A-B",  "id": "1"}
+{  "forename": "Harry",  "surname": "A-C",  "id": "2"}
+{  "forename": "Harry",  "surname": "A-D",  "id": "3"}
+{  "forename": "Harry",  "surname": "A-E",  "id": "4"}
+```
+
+http://localhost:8080/person/4
+
+```json lines
+{  "forename": "Harry",  "surname": "A-E",  "id": "4"}
+```
+
 ## Backpressure demo
 
 HTTP/2, gRPC and Spring Reactor all have backpressure so we can stream server thru to client:
@@ -159,110 +266,3 @@ Client backpressure demo: 1800
 Client backpressure demo: 1900
 2021-12-03 16:58:43.749  INFO 15367 --- [atcher-worker-2] i.g.e.helloworld.HelloWorldServer        : Server backpressure demo: 2000
 ```
-
-## Run REST server and gRPC server
-
-Implemented a REST endpoint to call the underlying data stream (_Flux_) used by the gRPC server but convert the protobuf results to JSON.
-
-### Running as both web server and gRPC server
-
-Main class extends _ApplicationRunner_ and startup is _REACTIVE_ web type 
-
-```kotlin
-open class HelloWorldServer : ApplicationRunner {
-    override fun run(args: ApplicationArguments?) {
-        val server = HelloWorldServer()
-        server.start()
-    }
-}
-
-fun main(args: Array<String>) {
-    val app = SpringApplication(HelloWorldServer::class.java)
-    app.webApplicationType = WebApplicationType.REACTIVE
-    app.run(*args)
-}
-```
-
-### REST built on gRPC
-
-A REST service could call the gRPC service directly, wrapping the gRPC service as REST ...
-
-```kotlin
-class PersonHandler {
-    private val service = FriendService()
-
-    fun list(request: ServerRequest): JsonResponse =
-        // the gRPC service call ...
-        service.listPeople().asRestResponse()
-
-    fun get(request: ServerRequest): JsonResponse =
-        runBlocking {
-            // the gRPC service call ...
-            service.getPerson( personId {  id = request.pathVariable("id").toLong()  })
-                    .asRestResponse()
-        }
-
-```
-
-... which is routed as follows using Kotlin DSL: 
-
-```kotlin
-class PersonRouter(private val handler: PersonHandler) {
-
-    fun theRouter() = router {
-        accept(MediaType.APPLICATION_JSON).nest {
-            GET("/people").invoke(handler::list)
-            GET("/person/{id}").invoke(handler::get)
-        }
-    }
-}
-```
-
-### JSON handler
-
-Can use generic JSON handling across protobuf classes:
-
-```kotlin
-// Kotlin extension function
-fun GeneratedMessageV3.asJson(): String =
-    JsonFormat.printer().print(this)
-        .replace("\\n".toRegex(), "")
-        .replace("\\r".toRegex(), "")
-
-fun Flux<GeneratedMessageV3>.asRestResponse(): JsonResponse =
-    ServerResponse.ok()
-        .contentType(MediaType.APPLICATION_JSON)
-        .body(
-            BodyInserters.fromPublisher(
-                this.map { it.asJson() + "\n" },
-                String::class.java
-            )
-        )
-
-fun Flow<GeneratedMessageV3>.asRestResponse(): JsonResponse =
-    asFlux().asRestResponse()
-
-fun GeneratedMessageV3.asRestResponse(): JsonResponse =
-    Flux.just(this).asRestResponse()
-
-}
-```
-
-### Example
-
-http://localhost:8080/people
-
-```json lines
-{  "forename": "Harry",  "surname": "A-A"}
-{  "forename": "Harry",  "surname": "A-B",  "id": "1"}
-{  "forename": "Harry",  "surname": "A-C",  "id": "2"}
-{  "forename": "Harry",  "surname": "A-D",  "id": "3"}
-{  "forename": "Harry",  "surname": "A-E",  "id": "4"}
-```
-
-http://localhost:8080/person/4
-
-```json lines
-{  "forename": "Harry",  "surname": "A-E",  "id": "4"}
-```
-
