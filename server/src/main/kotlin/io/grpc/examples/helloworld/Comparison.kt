@@ -1,19 +1,38 @@
 package io.grpc.examples.helloworld
 
-class CompareRecord {
-    class Check() {
+class Comparison {
+    class FieldComparison(val field: String) {
         var actual: String? = null
         var expected: String? = null
-        fun checkField(init: Check.() -> Unit): Check =
-            Check().apply {
-                init()
-            }
-
     }
+    val result: ComparisonResult.Builder = ComparisonResult.newBuilder()
+
+    fun addBreak(brk: ComparisonBreak) {
+        result.addBreaks(brk)
+    }
+
+    fun compareValue(f: String, init: FieldComparison.() -> Unit): FieldComparison =
+        FieldComparison(f).also { cmp: FieldComparison ->
+            cmp.init()
+            if (!cmp.actual.equals(cmp.expected))
+                addBreak(comparisonBreak {
+                    fieldName = cmp.field
+                    expectedValue = cmp.expected ?: ""
+                    actualValue = cmp.actual ?: ""
+                })
+
+        }
+    fun comparing(f: String, cmp: FieldComparison.() -> Unit) {
+        with (FieldComparison(f)) {
+            cmp()
+        }
+    }
+
 }
 
 
-fun compareRecord(init: CompareRecord.() -> Unit): CompareRecord =
-    CompareRecord().apply {
+fun comparison(init: Comparison.() -> Unit): ComparisonResult =
+    with (Comparison()) {
         init()
+        result.build()
     }

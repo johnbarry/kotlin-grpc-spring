@@ -13,6 +13,7 @@
 // limitations under the License.
 syntax = "proto3";
 import "google/protobuf/timestamp.proto";
+import "google/protobuf/any.proto";
 option java_multiple_files = true;
 option java_package = "io.grpc.examples.helloworld";
 option java_outer_classname = "HelloWorldProto";
@@ -39,6 +40,28 @@ service FriendService {
   rpc makeFriend(NewFriendCommand) returns (NewFriendshipEvent) {}
   rpc friendCommands(EventStreamRequest) returns (stream NewFriendCommand) {}
   rpc makeOutstandingFriends(EventStreamRequest) returns (stream NewFriendshipEvent) {}
+
+}
+
+service ComparisonService {
+  rpc comparePerson(PersonComparison) returns (ComparisonResult) {}
+}
+
+message PersonComparison {
+  Person expected = 1;
+  Person2 actual  = 2;
+}
+
+message ComparisonBreak {
+  string fieldName = 1;
+  string expectedValue = 2;
+  string actualValue = 3;
+  bool expectedBreak = 4;
+  string explain = 5;
+}
+
+message ComparisonResult {
+  repeated ComparisonBreak breaks = 1;
 }
 
 message ANumber {
@@ -123,4 +146,10 @@ message HelloRequest {
 // The response message containing the greetings
 message HelloReply {
   string message = 1;
+}
+
+message Person2 {
+  uint64 id = 6;
+  string name = 1;
+  repeated string address = 2;
 }

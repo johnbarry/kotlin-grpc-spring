@@ -28,7 +28,10 @@ import kotlinx.coroutines.reactive.asFlow
 import kotlinx.coroutines.reactor.asFlux
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
-import org.springframework.boot.*
+import org.springframework.boot.ApplicationArguments
+import org.springframework.boot.ApplicationRunner
+import org.springframework.boot.SpringApplication
+import org.springframework.boot.WebApplicationType
 import org.springframework.boot.autoconfigure.EnableAutoConfiguration
 import org.springframework.boot.autoconfigure.SpringBootApplication
 import org.springframework.stereotype.Component
@@ -79,11 +82,13 @@ open class HelloWorldServer : ApplicationRunner {
         override fun backPressureDemo(request: BackPressureDemoRequest): Flow<ANumber> =
             (if (request.addFiller) 100 else 10_000).let { reportEvery ->
                 Flux.range(1, request.number)
-                    .map{ aNumber {
-                        number = it
-                        if (request.addFiller)
-                            (1..it).forEach { _ -> filler.add("BlahBlahBlah") }
-                    } }
+                    .map {
+                        aNumber {
+                            number = it
+                            if (request.addFiller)
+                                (1..it).forEach { _ -> filler.add("BlahBlahBlah") }
+                        }
+                    }
                     .doOnNext {
                         val n = it.number
                         if (n % reportEvery == 0)
@@ -192,24 +197,91 @@ class FriendService : FriendServiceGrpcKt.FriendServiceCoroutineImplBase() {
 
     override suspend fun getPerson(request: PersonId): Person =
         listPeople(Empty.getDefaultInstance())
-            .filter{ p -> p.id == request.id }
+            .filter { p -> p.id == request.id }
             .firstOrNull() ?: Person.getDefaultInstance()
 
     override suspend fun changeCallback(request: PersonChangeEvent): PersonChange =
         peopleUpdateFlux()
-            .filter { it.changeId == request.changeId  }
+            .filter { it.changeId == request.changeId }
             .blockFirst() ?: PersonChange.getDefaultInstance()
 
     override fun peopleChangeEvents(request: Empty): Flow<PersonChangeEvent> =
         peopleUpdateFlux()
-            .map { p -> personChangeEvent {
-                changeId = p.changeId
-                id = p.person.id
-                operation = p.operation
-            }}
+            .map { p ->
+                personChangeEvent {
+                    changeId = p.changeId
+                    id = p.person.id
+                    operation = p.operation
+                }
+            }
             .asFlow()
+
 }
 
+fun List<String>.multiLineAddress(): String =
+    filter { it.isNotEmpty() }
+        .joinToString("\n")
+class ComparisonService : ComparisonServiceGrpcKt.ComparisonServiceCoroutineImplBase() {
+
+
+    override suspend fun comparePerson(request: PersonComparison): ComparisonResult =
+        comparison {
+            compareValue("name") {
+                actual = request.actual.name
+                expected = request.expected.forename + " " + request.expected.surname
+            }
+            compareValue("id") {
+                actual = request.actual.id.toString()
+                expected = request.expected.id.toString()
+            }
+            comparing("address") {
+                if (request.actual.addressCount != 0
+                    || request.expected.addressLine1 == null
+                    || request.expected.addressLine2 == null
+                    || request.expected.city == null
+                ) {
+                    val expectedAddress = with(request.expected) {
+                        listOf(addressLine1, addressLine2, city)
+                            .multiLineAddress()
+                    }
+                    val actualAddress = request.actual.addressList.multiLineAddress()
+                    val addressWithoutCity: List<String>? = request.actual.addressList
+                        ?.withIndex()
+                        ?.filterNot { (_, value) ->
+                            value.equals(request.expected.city, true)
+                        }
+                        ?.map { it.value }
+
+                    if ((addressWithoutCity?.size ?: 0) == request.actual.addressList.size)
+                        addBreak(comparisonBreak {
+                            fieldName = this@comparing.field
+                            actualValue = actualAddress
+                            expectedValue = expectedAddress
+                            explain = "Did not find city in address"
+                        }) else {
+                        if (addressWithoutCity != null) {
+                            if (!addressWithoutCity
+                                    .multiLineAddress()
+                                    .equals(
+                                        listOf(request.expected.addressLine1, request.expected.addressLine2)
+                                            .multiLineAddress(),
+                                        true
+                                    )
+                            )
+                                addBreak(comparisonBreak {
+                                    fieldName = this@comparing.field
+                                    actualValue = actualAddress
+                                    expectedValue = expectedAddress
+                                    explain = "Address line mismatch"
+                                })
+                        }
+                    }
+                }
+            }
+        }
+
+
+}
 
 fun main(args: Array<String>) {
     HelloWorldServer.log.info("Starting up spring...")

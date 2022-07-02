@@ -6,12 +6,16 @@ plugins {
     id ("org.springframework.boot") version "2.5.2"
     id ("io.spring.dependency-management") version "1.0.11.RELEASE"
 }
+java {
+    toolchain.languageVersion.set(JavaLanguageVersion.of(8))
+}
 
 dependencies {
     implementation(project(":stub"))
     implementation ("org.springframework.boot:spring-boot-starter-actuator")
     implementation ("org.springframework.boot:spring-boot-starter-webflux")
     implementation( "io.projectreactor.kafka:reactor-kafka:1.3.7")
+    testImplementation(kotlin("test"))
     runtimeOnly("io.grpc:grpc-netty:${rootProject.ext["grpcVersion"]}")
 }
 
@@ -40,7 +44,9 @@ tasks.register<Copy>("copyDistro") {
     into(file(findProperty("LOCAL_TEST_DIR").toString().drop(1).dropLast(1)))
 }
 
-
+tasks.test {
+    useJUnitPlatform()
+}
 
 tasks.named("startScripts") {
     dependsOn(helloWorldServerStartScripts)

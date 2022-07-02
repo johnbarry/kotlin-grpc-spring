@@ -12,6 +12,8 @@ ext["protobufVersion"] = "3.18.1"
 ext["coroutinesVersion"] = "1.5.2"
 ext["springCloudVersion"] = "2020.0.3"
 
+
+
 allprojects {
     repositories {
         mavenLocal()
@@ -23,6 +25,5 @@ allprojects {
 subprojects {
     apply(plugin="idea")
 }
-
 tasks
 //tasks.create("assemble").dependsOn(":server:installDist")
