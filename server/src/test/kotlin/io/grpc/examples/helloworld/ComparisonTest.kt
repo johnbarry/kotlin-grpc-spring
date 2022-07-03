@@ -1,10 +1,11 @@
 package io.grpc.examples.helloworld
 
+import com.google.protobuf.util.JsonFormat
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Test
+import org.json.XML
 
 class ComparisonTest {
-
     private val server = ComparisonService()
 
     private val jsonExpected1 = person {
@@ -14,28 +15,34 @@ class ComparisonTest {
         addressLine1 = "123 Main Street"
         city = "Cary"
     }
-    private val jsonActual1 = person2 {
-        id = 50
-        name = "Joe Bloggs"
-        address.add("123 Main Street")
-        address.add("Cary")
-    }
-    private val jsonActual2 = jsonActual1.toBuilder()
+    private val xmlActual1 = """
+        <id>50</id>
+        <name>Joe Bloggs</name>
+        <address>123 Main Street</address>
+        <address>Cary</address>
+    """.trimIndent()
+    private val protoActual1 = xmlToProto(xmlActual1)
+    private val protoActual2 = protoActual1.toBuilder()
         .setName("XXX")
         .build()
-    private val jsonActual3 = jsonActual1.toBuilder()
+    private val protoActual3 = protoActual1.toBuilder()
         .addAddress("extra address line")
         .build()
+    private fun xmlToProto(xml: String): Person2 =
+        with (Person2.newBuilder()) {
+            JsonFormat.parser().merge(XML.toJSONObject(xml).toString(2), this)
+            build()
+        }
 
     @Test
     fun personMatch() {
         runBlocking {
             val res = server.comparePerson( personComparison {
-                actual = jsonActual1
+                actual = protoActual1
                 expected = jsonExpected1
+                identifier = jsonExpected1.id.toString()
             } )
-            assert(res.breaksCount == 0)
-
+            assert(res.unexpectedBreaksCount == 0)
         }
     }
 
@@ -43,29 +50,26 @@ class ComparisonTest {
     fun personNameMismatch() {
         runBlocking {
             val res = server.comparePerson( personComparison {
-                actual = jsonActual2
+                actual = protoActual2
                 expected = jsonExpected1
             } )
-            assert(res.breaksCount == 1)
-            assert(res.getBreaks(0).equals(comparisonBreak {
+            assert(res.unexpectedBreaksCount == 1)
+            assert(res.getUnexpectedBreaks(0).equals(comparisonBreak {
                 expectedValue = "Joe Bloggs"
                 actualValue = "XXX"
                 fieldName = "name"
-                expectedBreak = false
             }))
-
         }
     }
     @Test
     fun personAddressMismatch() {
         runBlocking {
             val res = server.comparePerson( personComparison {
-                actual = jsonActual3
+                actual = protoActual3
                 expected = jsonExpected1
             } )
-            assert(res.breaksCount == 1)
-            assert(res.getBreaks(0).fieldName=="address")
-
+            assert(res.unexpectedBreaksCount == 1)
+            assert(res.getUnexpectedBreaks(0).fieldName=="address")
         }
     }
 }

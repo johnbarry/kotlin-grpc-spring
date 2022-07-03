@@ -48,20 +48,22 @@ service ComparisonService {
 }
 
 message PersonComparison {
-  Person expected = 1;
-  Person2 actual  = 2;
+  string identifier = 1;
+  Person expected = 2;
+  Person2 actual  = 3;
 }
 
 message ComparisonBreak {
   string fieldName = 1;
   string expectedValue = 2;
   string actualValue = 3;
-  bool expectedBreak = 4;
-  string explain = 5;
+  string explain = 4;
 }
 
 message ComparisonResult {
-  repeated ComparisonBreak breaks = 1;
+  string identifier = 1;
+  repeated ComparisonBreak unexpectedBreaks = 2;
+  repeated ComparisonBreak expectedBreaks = 3;
 }
 
 message ANumber {

@@ -7,15 +7,18 @@ class Comparison {
     }
     val result: ComparisonResult.Builder = ComparisonResult.newBuilder()
 
-    fun addBreak(brk: ComparisonBreak) {
-        result.addBreaks(brk)
+    fun unexpectedBreak(brk: ComparisonBreak) {
+        result.addUnexpectedBreaks(brk)
     }
 
+    fun expectedBreak(brk: ComparisonBreak) {
+        result.addExpectedBreaks(brk)
+    }
     fun compareValue(f: String, init: FieldComparison.() -> Unit): FieldComparison =
         FieldComparison(f).also { cmp: FieldComparison ->
             cmp.init()
             if (!cmp.actual.equals(cmp.expected))
-                addBreak(comparisonBreak {
+                unexpectedBreak(comparisonBreak {
                     fieldName = cmp.field
                     expectedValue = cmp.expected ?: ""
                     actualValue = cmp.actual ?: ""
@@ -27,12 +30,11 @@ class Comparison {
             cmp()
         }
     }
-
 }
 
-
-fun comparison(init: Comparison.() -> Unit): ComparisonResult =
+fun comparison(id: String, init: Comparison.() -> Unit): ComparisonResult =
     with (Comparison()) {
+        result.identifier = id
         init()
         result.build()
     }

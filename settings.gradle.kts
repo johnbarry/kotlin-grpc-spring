@@ -1,4 +1,4 @@
-rootProject.name = "grp_examples"
+rootProject.name = "grpc-kotlin-examples"
 
  include("protos", "stub",  "client",  "server")
 

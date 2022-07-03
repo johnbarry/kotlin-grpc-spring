@@ -225,7 +225,7 @@ class ComparisonService : ComparisonServiceGrpcKt.ComparisonServiceCoroutineImpl
 
 
     override suspend fun comparePerson(request: PersonComparison): ComparisonResult =
-        comparison {
+        comparison(request.identifier) {
             compareValue("name") {
                 actual = request.actual.name
                 expected = request.expected.forename + " " + request.expected.surname
@@ -253,7 +253,7 @@ class ComparisonService : ComparisonServiceGrpcKt.ComparisonServiceCoroutineImpl
                         ?.map { it.value }
 
                     if ((addressWithoutCity?.size ?: 0) == request.actual.addressList.size)
-                        addBreak(comparisonBreak {
+                        unexpectedBreak(comparisonBreak {
                             fieldName = this@comparing.field
                             actualValue = actualAddress
                             expectedValue = expectedAddress
@@ -268,7 +268,7 @@ class ComparisonService : ComparisonServiceGrpcKt.ComparisonServiceCoroutineImpl
                                         true
                                     )
                             )
-                                addBreak(comparisonBreak {
+                                unexpectedBreak(comparisonBreak {
                                     fieldName = this@comparing.field
                                     actualValue = actualAddress
                                     expectedValue = expectedAddress
