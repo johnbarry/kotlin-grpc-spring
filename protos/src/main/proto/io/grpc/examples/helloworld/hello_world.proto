@@ -45,6 +45,44 @@ service FriendService {
 
 service ComparisonService {
   rpc comparePerson(PersonComparison) returns (ComparisonResult) {}
+  rpc generateTestData(TestDataRequest) returns (TestDataResponse) {}
+  rpc kafkaRecordCount(KafkaCountRequest) returns (KafkaCountResponse) {}
+  rpc createTopic(TopicCreationRequest) returns (Empty) {}
+  rpc deleteTopic(TopicDeletionRequest) returns (Empty) {}
+}
+
+message TopicCreationRequest {
+  string topic = 1;
+  uint32 partitions = 2;
+  uint32 replicaCount = 3;;
+}
+
+message TopicDeletionRequest {
+  string topic = 1;
+}
+
+message KafkaCountRequest {
+  string topic = 1;
+  oneof partitions {
+    uint32 partition = 2;
+    bool allPartitions = 3;
+  }
+}
+
+message KafkaCountResponse {
+  uint64 records = 1;
+}
+
+message TestDataRequest {
+  uint64 records = 1;
+  string expectedDataTopic = 2;
+  string actualDataTopic = 3;
+  uint32 percentBreaks = 4;
+}
+
+message TestDataResponse {
+  uint64 recordCount = 1;
+  uint64 breakCount = 2;
 }
 
 message PersonComparison {

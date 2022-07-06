@@ -1,5 +1,6 @@
 package io.grpc.examples.helloworld
 
+import net.datafaker.Faker
 import java.util.UUID
 
 fun Person.creation() = this.let { x ->
@@ -42,4 +43,26 @@ object PersonMock {
     }
     val originalRecords: Sequence<PersonChange> by lazy { testNames.map { it.creation() } }
     val updatedRecords: Sequence<PersonChange> by lazy { testNames.map { it.update() } }
+}
+
+object PersonFaker {
+
+    private val nameFaker = Faker().name()
+    private val addressFaker = Faker().address()
+    fun fakePersonPair(id: Long): Pair<Person,Person2> {
+        val b1 = Person.newBuilder()
+        val b2 = Person2.newBuilder()
+
+        b1.id = id
+        b2.id = id
+        b1.forename = nameFaker.firstName()
+        b1.surname = nameFaker.lastName()
+        b2.name = "${b1.forename} ${b1.surname}"
+        b1.addressLine1 = addressFaker.streetAddress()
+        b1.city = addressFaker.city()
+        b2.addAddress( b1.addressLine1)
+        b2.addAddress( b1.city )
+
+        return Pair(b1.build(), b2.build())
+    }
 }

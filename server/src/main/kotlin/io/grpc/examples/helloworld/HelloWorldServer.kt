@@ -20,12 +20,17 @@ import com.google.protobuf.Timestamp
 import com.google.protobuf.timestamp
 import io.grpc.Server
 import io.grpc.ServerBuilder
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.asFlow
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.firstOrNull
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.reactive.asFlow
 import kotlinx.coroutines.reactor.asFlux
+import kotlinx.coroutines.withContext
+import org.apache.kafka.clients.admin.NewTopic
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import org.springframework.boot.ApplicationArguments
@@ -37,6 +42,8 @@ import org.springframework.boot.autoconfigure.SpringBootApplication
 import org.springframework.stereotype.Component
 import reactor.core.publisher.Flux
 import java.time.Instant
+import java.util.concurrent.CountDownLatch
+import kotlin.random.Random
 
 const val NEW_FRIEND_CMD_TOPIC = "NewFriendCommand"
 const val NEW_FRIEND_EVENT_TOPIC = "NewFriendEvent"
@@ -113,6 +120,8 @@ open class HelloWorldServer : ApplicationRunner {
 
 class FriendService : FriendServiceGrpcKt.FriendServiceCoroutineImplBase() {
 
+    private val kafkaServers = "localhost:9092"
+
     data class ParseException(val key: String, val offset: Long) : Exception() {
         override fun toString(): String = "parse error for key: $key, offset=$offset"
     }
@@ -123,7 +132,7 @@ class FriendService : FriendServiceGrpcKt.FriendServiceCoroutineImplBase() {
             firstPerson = request.firstPerson
             secondPerson = request.secondPerson
         }.apply {
-            KafkaCommandEventHelper.write(NEW_FRIEND_CMD_TOPIC, Flux.just(Pair(null, this)))
+            KafkaHelper(kafkaServers).writeSinglePartition(NEW_FRIEND_CMD_TOPIC, Flux.just(Pair(null, this)))
         }
 
     private fun timeNow(): Timestamp = timestamp { seconds = Instant.now().epochSecond }
@@ -135,7 +144,7 @@ class FriendService : FriendServiceGrpcKt.FriendServiceCoroutineImplBase() {
         group: String,
         readEarliest: Boolean
     ): Flux<NewFriendCommand> =
-        KafkaCommandEventHelper.read(consumer, group, NEW_FRIEND_CMD_TOPIC, readEarliest)
+        KafkaHelper(kafkaServers).read(consumer, group, NEW_FRIEND_CMD_TOPIC, readEarliest)
             .map {
                 try {
                     NewFriendCommand.parseFrom(it.value())
@@ -164,7 +173,7 @@ class FriendService : FriendServiceGrpcKt.FriendServiceCoroutineImplBase() {
             secondPerson = request.secondPerson
             dated = timeNow()
         }.apply {
-            KafkaCommandEventHelper.write(NEW_FRIEND_EVENT_TOPIC, Flux.just(Pair(null, this)))
+            KafkaHelper(kafkaServers).writeSinglePartition(NEW_FRIEND_EVENT_TOPIC, Flux.just(Pair(null, this)))
         }
 
     override fun makeOutstandingFriends(request: EventStreamRequest): Flow<NewFriendshipEvent> =
@@ -173,7 +182,7 @@ class FriendService : FriendServiceGrpcKt.FriendServiceCoroutineImplBase() {
             .asFlow()
 
     override suspend fun generateTestData(request: Empty): Empty {
-        KafkaCommandEventHelper.write(PERSON_UPDATES_DATA_TOPIC,
+        KafkaHelper(kafkaServers).writeSinglePartition(PERSON_UPDATES_DATA_TOPIC,
             (PersonMock.originalRecords + PersonMock.updatedRecords)
                 .asFlow()
                 .asFlux()
@@ -184,7 +193,8 @@ class FriendService : FriendServiceGrpcKt.FriendServiceCoroutineImplBase() {
     }
 
     private fun peopleUpdateFlux() =
-        KafkaCommandEventHelper.read("person-list", "person-list-group", PERSON_UPDATES_DATA_TOPIC, true)
+        KafkaHelper(kafkaServers)
+            .read("person-list", "person-list-group", PERSON_UPDATES_DATA_TOPIC, true)
             .map { PersonChange.parseFrom(it.value()) }
 
     override fun listPeopleChanges(request: Empty): Flow<PersonChange> =
@@ -221,7 +231,12 @@ class FriendService : FriendServiceGrpcKt.FriendServiceCoroutineImplBase() {
 fun List<String>.multiLineAddress(): String =
     filter { it.isNotEmpty() }
         .joinToString("\n")
+
 class ComparisonService : ComparisonServiceGrpcKt.ComparisonServiceCoroutineImplBase() {
+
+    private val kafkaServers = "localhost:9092"
+    private val numberPartitions = 10
+    private val topicReplication: Short = 1
 
 
     override suspend fun comparePerson(request: PersonComparison): ComparisonResult =
@@ -280,7 +295,119 @@ class ComparisonService : ComparisonServiceGrpcKt.ComparisonServiceCoroutineImpl
             }
         }
 
+    override suspend fun createTopic(request: TopicCreationRequest): Empty {
+        admin {
+            servers = kafkaServers
+            assert(request.topic != null)
+            client?.createTopics(
+                listOf(
+                    request.topic
+                ).map {
+                    NewTopic(it!!, numberPartitions, topicReplication)
+                }
+            )
+                ?.all()
+                ?.get()
+        }
+        return Empty.getDefaultInstance()
+    }
+    override suspend fun deleteTopic(request: TopicDeletionRequest): Empty {
+        admin {
+            servers = kafkaServers
+            assert(request.topic != null)
+            client?.deleteTopics(
+                listOf(
+                    request.topic
+                )
+            )
+                ?.all()
+                ?.get()
+        }
+        return Empty.getDefaultInstance()
+    }
 
+    override suspend fun generateTestData(request: TestDataRequest): TestDataResponse {
+        val respBuilder = TestDataResponse.newBuilder()
+        var breakCount = 0L
+        val pairFlux: Flux<Triple<Person, Person2, Int>> = Flux.fromIterable(1..request.records)
+            .map {
+                val id = 1L + it
+                val partition = id.toInt() % numberPartitions
+                with(PersonFaker.fakePersonPair(id)) {
+                    if (Random.nextInt(100) <= request.percentBreaks)
+                        Triple(
+                            first,
+                            second.toBuilder()
+                                .addAddress("extra address line for break ${++breakCount}")
+                                .setName(
+                                    if (Random.nextInt(100) >= 50)
+                                        second.name + " XX"
+                                    else second.name
+                                )
+                                .build(),
+                            partition
+                        )
+                    else
+                        Triple(first, second, partition)
+                }
+            }
+            .publish()
+            .refCount(2)
+        val helper = KafkaHelper(kafkaServers)
+        var expectedCount = 0L
+        var actualCount = 0L
+
+        val latch = CountDownLatch(2)
+
+
+        coroutineScope {
+            launch {
+                helper.write(request.expectedDataTopic,
+                    pairFlux
+                        .map {
+                            Triple(it.first.id.toString(), it.first, it.third)
+                        })
+                    .doOnComplete {
+                        latch.countDown()
+                    }.count()
+                    .subscribe {
+                        expectedCount = it
+                    }
+            }
+            launch {
+                helper.write(request.actualDataTopic,
+                    pairFlux
+                        .map {
+                            Triple(it.second.id.toString(), it.second, it.third)
+                        })
+                    .doOnComplete {
+                        latch.countDown()
+                    }.count()
+                    .subscribe {
+                        actualCount = it
+                    }
+
+            }
+            withContext(Dispatchers.IO) {
+                latch.await()
+            }
+        }
+        respBuilder.breakCount = breakCount
+        assert(actualCount == expectedCount)
+        respBuilder.recordCount = actualCount
+
+        return respBuilder.build()
+    }
+
+    override suspend fun kafkaRecordCount(request: KafkaCountRequest): KafkaCountResponse =
+        kafkaCountResponse {
+            records =
+                KafkaHelper(kafkaServers)
+                    .read("KafkaCount", "KafkaCount", request.topic, readEarliest = true)
+                    .count()
+                    .block() ?: 0L
+
+        }
 }
 
 fun main(args: Array<String>) {

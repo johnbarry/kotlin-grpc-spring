@@ -15,6 +15,7 @@ dependencies {
     implementation ("org.springframework.boot:spring-boot-starter-webflux")
     implementation( "io.projectreactor.kafka:reactor-kafka:1.3.7")
     implementation("org.json:json:20220320")
+    implementation("net.datafaker:datafaker:1.4.0")
     testImplementation(kotlin("test"))
     runtimeOnly("io.grpc:grpc-netty:${rootProject.ext["grpcVersion"]}")
 }
