@@ -10,6 +10,7 @@ import org.apache.kafka.common.serialization.ByteArraySerializer
 import org.apache.kafka.common.serialization.StringDeserializer
 import org.apache.kafka.common.serialization.StringSerializer
 import org.apache.kafka.clients.admin.AdminClientConfig
+import org.apache.kafka.common.TopicPartition
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import reactor.core.publisher.Flux
@@ -41,8 +42,15 @@ class KafkaHelper(private val servers: String) {
         ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG to VALUE_SERIAL
     )
 
-    private fun readOptions(consumerName: String, groupName: String): Map<String, Any> =
+    private val coreReadOptions: Map<String, Any> =
         mapOf(
+            ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG to servers,
+            ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG to KEY_DES,
+            ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG to VALUE_DES
+        )
+
+    private fun readOptions(consumerName: String, groupName: String): Map<String, Any> =
+        coreReadOptions + mapOf(
             ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG to servers,
             ConsumerConfig.CLIENT_ID_CONFIG to consumerName,
             ConsumerConfig.GROUP_ID_CONFIG to groupName,
@@ -53,19 +61,27 @@ class KafkaHelper(private val servers: String) {
     private fun generateUUID(): String = UUID.randomUUID().toString()
 
     fun writeSinglePartition(topicName: String, kv: Flux<Pair<KafkaKey?, GeneratedMessageV3>>) =
-        blockWrite(topicName,
+        blockWriteProto(topicName,
             kv
                 .map {
                     Triple(it.first, it.second, 0)
                 })
 
-    fun blockWrite(topicName: String, kvPlusPartition: Flux<Triple<KafkaKey?, GeneratedMessageV3, Int>>) {
+    fun blockWriteProto(topicName: String, kvPlusPartition: Flux<Triple<KafkaKey?, GeneratedMessageV3, Int>>) {
         log.info("Start kafka write...")
-        write(topicName, kvPlusPartition)
+        writeProto(topicName, kvPlusPartition)
             .blockLast()
         log.info("Completed kafka write")
     }
-    fun write(topicName: String, kvPlusPartition: Flux<Triple<KafkaKey?, GeneratedMessageV3, Int>>) =
+
+    fun writeProto(topicName: String, kvPlusPartition: Flux<Triple<KafkaKey?, GeneratedMessageV3, Int>>) =
+        writeBytes(topicName,
+            kvPlusPartition
+                .map {
+                    Triple(it.first, it.second.toByteArray(), it.third)
+                })
+
+    fun writeBytes(topicName: String, kvPlusPartition: Flux<Triple<KafkaKey?, ByteArray, Int>>) =
         KafkaSender.create(SenderOptions.create<KafkaKey, KafkaPayload>(writeProps)).send(
             kvPlusPartition.map {
                 SenderRecord.create(
@@ -73,35 +89,55 @@ class KafkaHelper(private val servers: String) {
                     it.third,
                     System.currentTimeMillis(),
                     it.first ?: generateUUID(),
-                    it.second.toByteArray(),
+                    it.second,
                     it.first
                 )
             }
         )
             .doOnError {
-                log.error("Kafka send failed: {}", it)
+                log.error("Kafka send failed: $it")
             }
             .doOnComplete { log.info("$topicName WRITE COMPLETE") }
 
+    private fun readFlux(topicName: String, rec: KafkaReceiver<KafkaKey, KafkaPayload>) =
+        rec
+            .receiveAutoAck()
+            .timeout(Duration.ofSeconds(1L), Mono.empty())
+            .flatMap { it }
+            //.log()
+            .doOnComplete { log.info("$topicName READ COMPLETE") }
 
     fun read(
         consumerName: String, groupName: String, topicName: String,
         readEarliest: Boolean = false
     ): Flux<ConsumerRecord<KafkaKey /* = kotlin.String */, KafkaPayload /* = kotlin.ByteArray */>> =
-        KafkaReceiver.create(
-            ReceiverOptions.create<KafkaKey, KafkaPayload>(readOptions(consumerName, groupName))
-                .subscription(setOf(topicName))
+        readFlux(
+            topicName,
+            KafkaReceiver.create(
+                ReceiverOptions.create<KafkaKey, KafkaPayload>(readOptions(consumerName, groupName))
+                    .subscription(setOf(topicName))
+                    .addAssignListener { parts ->
+                        if (readEarliest)
+                            parts.forEach { p -> p.seekToBeginning() }
+                    }
+                    .addRevokeListener { log.debug("partitions revoked {}", it) }
+            )
+        )
+
+
+    fun readPartition(topicName: String, partition: Int, readEarliest: Boolean = false):
+            Flux<ConsumerRecord<KafkaKey /* = kotlin.String */, KafkaPayload /* = kotlin.ByteArray */>> =
+        readFlux(
+            topicName,
+            KafkaReceiver.create(
+            ReceiverOptions.create<KafkaKey, KafkaPayload>(coreReadOptions)
+                .assignment(setOf(TopicPartition(topicName, partition)))
                 .addAssignListener { parts ->
                     if (readEarliest)
                         parts.forEach { p -> p.seekToBeginning() }
                 }
                 .addRevokeListener { log.debug("partitions revoked {}", it) }
-        )
-            .receiveAutoAck()
-            .timeout(Duration.ofSeconds(1L), Mono.empty())
-            .flatMap { it }
-            //.log()
-            .doOnComplete { log.info("$topicName READ COMPLETE ($consumerName)") }
+        ))
 }
 
 class KafkaAdminHelper {

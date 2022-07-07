@@ -1,9 +1,7 @@
 package io.grpc.examples.helloworld
 
-import com.google.protobuf.util.JsonFormat
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Test
-import org.json.XML
 
 class ComparisonUnitTest {
     private val server = ComparisonService()
@@ -21,18 +19,19 @@ class ComparisonUnitTest {
         <address>123 Main Street</address>
         <address>Cary</address>
     """.trimIndent()
-    private val protoActual1 = xmlToProto(xmlActual1)
+
+    //private val protoActual1 = xmlToProto(xmlActual1)
+    private val protoActual1 = Person2.newBuilder().apply {
+        fromXML(xmlActual1)
+    }.build()
+
     private val protoActual2 = protoActual1.toBuilder()
         .setName("XXX")
         .build()
+
     private val protoActual3 = protoActual1.toBuilder()
-        .addAddress("extra address line")
+        .addAddress("extra line")
         .build()
-    private fun xmlToProto(xml: String): Person2 =
-        with (Person2.newBuilder()) {
-            JsonFormat.parser().merge(XML.toJSONObject(xml).toString(2), this)
-            build()
-        }
 
     @Test
     fun personMatch() {
@@ -61,6 +60,7 @@ class ComparisonUnitTest {
             }))
         }
     }
+
     @Test
     fun personAddressMismatch() {
         runBlocking {

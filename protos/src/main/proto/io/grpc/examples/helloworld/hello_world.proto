@@ -49,6 +49,7 @@ service ComparisonService {
   rpc kafkaRecordCount(KafkaCountRequest) returns (KafkaCountResponse) {}
   rpc createTopic(TopicCreationRequest) returns (Empty) {}
   rpc deleteTopic(TopicDeletionRequest) returns (Empty) {}
+  rpc kafkaComparison (PersonTopicComparison) returns (Empty) {}
 }
 
 message TopicCreationRequest {
@@ -68,6 +69,31 @@ message KafkaCountRequest {
     bool allPartitions = 3;
   }
 }
+
+message KafkaTopicInfo {
+  enum Format {
+    UNKNOWN = 0;
+    XML = 1;
+    JSON = 2;
+    PROTO = 3;
+  }
+
+  string topicName = 1;
+  Format format = 2;
+}
+
+message PersonTopicComparison {
+  KafkaTopicInfo actualDataTopic = 1;
+  KafkaTopicInfo expectedDataTopic = 2;
+  string resultTopicName = 3;
+  repeated uint32 partitionsToCompare = 4;
+}
+
+message PersonComparisonResponse {
+  uint64 recordCount = 1;
+  uint64 breakCount = 2;
+}
+
 
 message KafkaCountResponse {
   uint64 records = 1;

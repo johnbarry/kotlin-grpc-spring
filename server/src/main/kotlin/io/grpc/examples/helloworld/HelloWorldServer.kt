@@ -16,6 +16,7 @@
 
 package io.grpc.examples.helloworld
 
+import com.google.protobuf.GeneratedMessageV3
 import com.google.protobuf.Timestamp
 import com.google.protobuf.timestamp
 import io.grpc.Server
@@ -28,6 +29,7 @@ import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.reactive.asFlow
+import kotlinx.coroutines.reactive.collect
 import kotlinx.coroutines.reactor.asFlux
 import kotlinx.coroutines.withContext
 import org.apache.kafka.clients.admin.NewTopic
@@ -311,6 +313,7 @@ class ComparisonService : ComparisonServiceGrpcKt.ComparisonServiceCoroutineImpl
         }
         return Empty.getDefaultInstance()
     }
+
     override suspend fun deleteTopic(request: TopicDeletionRequest): Empty {
         admin {
             servers = kafkaServers
@@ -326,9 +329,9 @@ class ComparisonService : ComparisonServiceGrpcKt.ComparisonServiceCoroutineImpl
         return Empty.getDefaultInstance()
     }
 
+
     override suspend fun generateTestData(request: TestDataRequest): TestDataResponse {
-        val respBuilder = TestDataResponse.newBuilder()
-        var breakCount = 0L
+        var breaks = 0L
         val pairFlux: Flux<Triple<Person, Person2, Int>> = Flux.fromIterable(1..request.records)
             .map {
                 val id = 1L + it
@@ -338,7 +341,7 @@ class ComparisonService : ComparisonServiceGrpcKt.ComparisonServiceCoroutineImpl
                         Triple(
                             first,
                             second.toBuilder()
-                                .addAddress("extra address line for break ${++breakCount}")
+                                .addAddress("extra address line for break ${++breaks}")
                                 .setName(
                                     if (Random.nextInt(100) >= 50)
                                         second.name + " XX"
@@ -362,7 +365,7 @@ class ComparisonService : ComparisonServiceGrpcKt.ComparisonServiceCoroutineImpl
 
         coroutineScope {
             launch {
-                helper.write(request.expectedDataTopic,
+                helper.writeProto(request.expectedDataTopic,
                     pairFlux
                         .map {
                             Triple(it.first.id.toString(), it.first, it.third)
@@ -375,10 +378,10 @@ class ComparisonService : ComparisonServiceGrpcKt.ComparisonServiceCoroutineImpl
                     }
             }
             launch {
-                helper.write(request.actualDataTopic,
+                helper.writeBytes(request.actualDataTopic,
                     pairFlux
                         .map {
-                            Triple(it.second.id.toString(), it.second, it.third)
+                            Triple(it.second.id.toString(), it.second.asXml().toByteArray(), it.third)
                         })
                     .doOnComplete {
                         latch.countDown()
@@ -392,22 +395,75 @@ class ComparisonService : ComparisonServiceGrpcKt.ComparisonServiceCoroutineImpl
                 latch.await()
             }
         }
-        respBuilder.breakCount = breakCount
-        assert(actualCount == expectedCount)
-        respBuilder.recordCount = actualCount
-
-        return respBuilder.build()
+        return testDataResponse {
+            breakCount = breaks
+            recordCount = actualCount
+            assert(actualCount == expectedCount)
+        }
     }
 
     override suspend fun kafkaRecordCount(request: KafkaCountRequest): KafkaCountResponse =
         kafkaCountResponse {
             records =
                 KafkaHelper(kafkaServers)
-                    .read("KafkaCount", "KafkaCount", request.topic, readEarliest = true)
+                    .let {
+                        if (request.hasAllPartitions())
+                            it.read("KafkaCount", "KafkaCount", request.topic, readEarliest = true)
+                        else
+                            it.readPartition(request.topic, request.partition, readEarliest = true)
+                    }
                     .count()
                     .block() ?: 0L
 
         }
+
+
+    override suspend fun kafkaComparison(request: PersonTopicComparison): Empty {
+        request.partitionsToCompareList.forEach { part ->
+            println("Partition $part ..........")
+            fun <T> keyExtractor(p: Pair<KafkaKey, T>) = p.first
+            fun <T> valueExtractor(p: Pair<KafkaKey, T>) = p.second
+
+            val actualMap: Map<KafkaKey, Person2>? = KafkaHelper(kafkaServers)
+                .readPartition(request.actualDataTopic.topicName, part)
+                .log()
+                .map {
+                    it.key() to when (request.actualDataTopic.format) {
+                        KafkaTopicInfo.Format.JSON -> Person2.newBuilder().apply { fromJson(it.value().toString()) }
+                            .build()
+                        KafkaTopicInfo.Format.XML -> Person2.newBuilder().apply { fromXML(it.value().toString()) }
+                            .build()
+                        KafkaTopicInfo.Format.PROTO -> Person2.parseFrom(it.value())
+                        else -> throw Exception("Topic format undefined")
+                    }
+                }
+                .collectMap(::keyExtractor, ::valueExtractor)
+                .block()
+            val expectedMap: Map<KafkaKey, Person>? = KafkaHelper(kafkaServers)
+                .readPartition(request.expectedDataTopic.topicName, part)
+                .map {
+                    it.key() to when (request.expectedDataTopic.format) {
+                        KafkaTopicInfo.Format.JSON -> Person.newBuilder().apply { fromJson(it.value().toString()) }
+                            .build()
+                        KafkaTopicInfo.Format.XML -> Person.newBuilder().apply { fromXML(it.value().toString()) }
+                            .build()
+                        KafkaTopicInfo.Format.PROTO -> Person.parseFrom(it.value())
+                        else -> throw Exception("Topic format undefined")
+                    }
+                }
+                .collectMap(::keyExtractor, ::valueExtractor)
+                .block()
+            if (actualMap != null && expectedMap != null) {
+                assert(actualMap.isNotEmpty() && expectedMap.isNotEmpty())
+                actualMap.keys.intersect(expectedMap.keys).forEach {
+                    println("Record key $it in both datasets")
+                }
+            } else
+                assert(false)
+        }
+        return Empty.getDefaultInstance()
+    }
+
 }
 
 fun main(args: Array<String>) {
