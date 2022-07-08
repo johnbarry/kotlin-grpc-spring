@@ -124,10 +124,23 @@ message ComparisonBreak {
   string explain = 4;
 }
 
-message ComparisonResult {
-  string identifier = 1;
+message RecordComparison {
   repeated ComparisonBreak unexpectedBreaks = 2;
   repeated ComparisonBreak expectedBreaks = 3;
+}
+
+message ComparisonResult {
+  string identifier = 1;
+  enum ResultType {
+    UNKNOWN = 0;
+    MATCHED = 1;
+    BREAKS = 2;
+    ONLY_EXPECTED = 3;
+    ONLY_ACTUAL = 4;
+  }
+  ResultType result = 2;
+  repeated ComparisonBreak unexpectedBreaks = 3;
+  repeated ComparisonBreak expectedBreaks = 4;
 }
 
 message ANumber {

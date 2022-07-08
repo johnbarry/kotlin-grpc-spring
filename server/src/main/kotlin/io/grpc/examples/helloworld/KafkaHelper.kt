@@ -42,18 +42,18 @@ class KafkaHelper(private val servers: String) {
         ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG to VALUE_SERIAL
     )
 
-    private val coreReadOptions: Map<String, Any> =
+    private fun coreReadOptions(groupName: String): Map<String, Any> =
         mapOf(
+            ConsumerConfig.GROUP_ID_CONFIG to groupName,
             ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG to servers,
             ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG to KEY_DES,
             ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG to VALUE_DES
         )
 
     private fun readOptions(consumerName: String, groupName: String): Map<String, Any> =
-        coreReadOptions + mapOf(
+        coreReadOptions(groupName) + mapOf(
             ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG to servers,
             ConsumerConfig.CLIENT_ID_CONFIG to consumerName,
-            ConsumerConfig.GROUP_ID_CONFIG to groupName,
             ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG to KEY_DES,
             ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG to VALUE_DES
         )
@@ -125,12 +125,12 @@ class KafkaHelper(private val servers: String) {
         )
 
 
-    fun readPartition(topicName: String, partition: Int, readEarliest: Boolean = false):
+    fun readPartition(groupName: String, topicName: String, partition: Int, readEarliest: Boolean = false):
             Flux<ConsumerRecord<KafkaKey /* = kotlin.String */, KafkaPayload /* = kotlin.ByteArray */>> =
         readFlux(
             topicName,
             KafkaReceiver.create(
-            ReceiverOptions.create<KafkaKey, KafkaPayload>(coreReadOptions)
+            ReceiverOptions.create<KafkaKey, KafkaPayload>(coreReadOptions(groupName))
                 .assignment(setOf(TopicPartition(topicName, partition)))
                 .addAssignListener { parts ->
                     if (readEarliest)

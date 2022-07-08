@@ -41,7 +41,7 @@ class ComparisonUnitTest {
                 expected = jsonExpected1
                 identifier = jsonExpected1.id.toString()
             } )
-            assert(res.unexpectedBreaksCount == 0)
+            assert(res.result == ComparisonResult.ResultType.MATCHED)
         }
     }
 
@@ -58,6 +58,7 @@ class ComparisonUnitTest {
                 actualValue = "XXX"
                 fieldName = "name"
             }))
+            assert(res.result == ComparisonResult.ResultType.BREAKS)
         }
     }
 
@@ -70,6 +71,8 @@ class ComparisonUnitTest {
             } )
             assert(res.unexpectedBreaksCount == 1)
             assert(res.getUnexpectedBreaks(0).fieldName=="address")
+            assert(res.result == ComparisonResult.ResultType.BREAKS)
+
         }
     }
 }

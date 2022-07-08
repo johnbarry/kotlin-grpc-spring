@@ -16,7 +16,6 @@
 
 package io.grpc.examples.helloworld
 
-import com.google.protobuf.GeneratedMessageV3
 import com.google.protobuf.Timestamp
 import com.google.protobuf.timestamp
 import io.grpc.Server
@@ -29,7 +28,6 @@ import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.reactive.asFlow
-import kotlinx.coroutines.reactive.collect
 import kotlinx.coroutines.reactor.asFlux
 import kotlinx.coroutines.withContext
 import org.apache.kafka.clients.admin.NewTopic
@@ -239,6 +237,7 @@ class ComparisonService : ComparisonServiceGrpcKt.ComparisonServiceCoroutineImpl
     private val kafkaServers = "localhost:9092"
     private val numberPartitions = 10
     private val topicReplication: Short = 1
+    private val kafkaConsumerGroup = "ComparisonService"
 
 
     override suspend fun comparePerson(request: PersonComparison): ComparisonResult =
@@ -410,7 +409,7 @@ class ComparisonService : ComparisonServiceGrpcKt.ComparisonServiceCoroutineImpl
                         if (request.hasAllPartitions())
                             it.read("KafkaCount", "KafkaCount", request.topic, readEarliest = true)
                         else
-                            it.readPartition(request.topic, request.partition, readEarliest = true)
+                            it.readPartition(kafkaConsumerGroup, request.topic, request.partition, readEarliest = true)
                     }
                     .count()
                     .block() ?: 0L
@@ -420,18 +419,20 @@ class ComparisonService : ComparisonServiceGrpcKt.ComparisonServiceCoroutineImpl
 
     override suspend fun kafkaComparison(request: PersonTopicComparison): Empty {
         request.partitionsToCompareList.forEach { part ->
-            println("Partition $part ..........")
             fun <T> keyExtractor(p: Pair<KafkaKey, T>) = p.first
             fun <T> valueExtractor(p: Pair<KafkaKey, T>) = p.second
 
+            var matchCount = 0
+            var breakCount = 0
+
             val actualMap: Map<KafkaKey, Person2>? = KafkaHelper(kafkaServers)
-                .readPartition(request.actualDataTopic.topicName, part)
+                .readPartition(kafkaConsumerGroup, request.actualDataTopic.topicName, part, readEarliest = true)
                 .log()
                 .map {
                     it.key() to when (request.actualDataTopic.format) {
-                        KafkaTopicInfo.Format.JSON -> Person2.newBuilder().apply { fromJson(it.value().toString()) }
+                        KafkaTopicInfo.Format.JSON -> Person2.newBuilder().apply { fromJson(String(it.value())) }
                             .build()
-                        KafkaTopicInfo.Format.XML -> Person2.newBuilder().apply { fromXML(it.value().toString()) }
+                        KafkaTopicInfo.Format.XML -> Person2.newBuilder().apply { fromXML(String(it.value())) }
                             .build()
                         KafkaTopicInfo.Format.PROTO -> Person2.parseFrom(it.value())
                         else -> throw Exception("Topic format undefined")
@@ -440,12 +441,12 @@ class ComparisonService : ComparisonServiceGrpcKt.ComparisonServiceCoroutineImpl
                 .collectMap(::keyExtractor, ::valueExtractor)
                 .block()
             val expectedMap: Map<KafkaKey, Person>? = KafkaHelper(kafkaServers)
-                .readPartition(request.expectedDataTopic.topicName, part)
+                .readPartition(kafkaConsumerGroup, request.expectedDataTopic.topicName, part, readEarliest = true)
                 .map {
                     it.key() to when (request.expectedDataTopic.format) {
                         KafkaTopicInfo.Format.JSON -> Person.newBuilder().apply { fromJson(it.value().toString()) }
                             .build()
-                        KafkaTopicInfo.Format.XML -> Person.newBuilder().apply { fromXML(it.value().toString()) }
+                        KafkaTopicInfo.Format.XML -> Person.newBuilder().apply { fromXML(String(it.value())) }
                             .build()
                         KafkaTopicInfo.Format.PROTO -> Person.parseFrom(it.value())
                         else -> throw Exception("Topic format undefined")
@@ -454,10 +455,28 @@ class ComparisonService : ComparisonServiceGrpcKt.ComparisonServiceCoroutineImpl
                 .collectMap(::keyExtractor, ::valueExtractor)
                 .block()
             if (actualMap != null && expectedMap != null) {
-                assert(actualMap.isNotEmpty() && expectedMap.isNotEmpty())
-                actualMap.keys.intersect(expectedMap.keys).forEach {
-                    println("Record key $it in both datasets")
+                actualMap.keys.intersect(expectedMap.keys).count().let {
+                    println("$it records in both datasets")
                 }
+                actualMap.keys.minus(expectedMap.keys).count().let {
+                    println("$it records only in actual dataset")
+                }
+                expectedMap.keys.minus(actualMap.keys).count().let {
+                    println("$it records only in expected dataset")
+                }
+                actualMap.keys.intersect(expectedMap.keys).map { key ->
+                    val ret = comparePerson( personComparison {
+                        expected = expectedMap[key]!!
+                        actual = actualMap[key]!!
+                        identifier = expected.id.toString()
+                    } )
+                    if (ret.result == ComparisonResult.ResultType.MATCHED)
+                        matchCount++
+                    else
+                        breakCount++
+                    ret
+                }
+                println("partition $part: $matchCount matches and $breakCount breaks")
             } else
                 assert(false)
         }

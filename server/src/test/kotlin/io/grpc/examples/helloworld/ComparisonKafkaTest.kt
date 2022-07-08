@@ -96,17 +96,25 @@ class ComparisonKafkaTest {
     internal fun `10 partitions of 100 rows`() {
         suspend fun doIt() {
             coroutineScope {
-                (0 until numberOfPartitions).forEach { part ->
-                    launch(Dispatchers.IO) {
-                        println("partition $part check")
-                        val ret = server.kafkaRecordCount(kafkaCountRequest {
-                            topic = expectedDataTopic
-                            partition = part
+                (0 until numberOfPartitions).flatMap { part ->
+                    listOf(
+                        launch(Dispatchers.IO) {
+                            val ret = server.kafkaRecordCount(kafkaCountRequest {
+                                topic = expectedDataTopic
+                                partition = part
+                            })
+                            //println("topic $expectedDataTopic partition $part has ${ret.records} records")
+                            assert(ret.records == recordCount / numberOfPartitions)
+                        },
+                        launch(Dispatchers.IO) {
+                            val ret = server.kafkaRecordCount(kafkaCountRequest {
+                                topic = actualDataTopic
+                                partition = part
+                            })
+                            //println("topic $actualDataTopic partition $part has ${ret.records} records")
+                            assert(ret.records == recordCount / numberOfPartitions)
                         })
-                        println("partition $part has ${ret.records} records")
-                        assert (ret.records == recordCount / numberOfPartitions)
-                    }
-                }
+                }.joinAll()
             }
         }
         runBlocking {
@@ -116,20 +124,30 @@ class ComparisonKafkaTest {
 
     @Test
     @Order(6)
-    internal fun `comparison runs`(): Unit =
-        runBlocking {
-            server.kafkaComparison(personTopicComparison {
-                expectedDataTopic = kafkaTopicInfo {
-                    topicName = this@ComparisonKafkaTest.expectedDataTopic
-                    format = KafkaTopicInfo.Format.XML
-                }
-                actualDataTopic = kafkaTopicInfo {
-                    topicName = this@ComparisonKafkaTest.actualDataTopic
-                    format = KafkaTopicInfo.Format.PROTO
-                }
-                partitionsToCompare.add(0)
-                partitionsToCompare.add(1)
-            })
+    internal fun `comparison runs`(): Unit {
+        suspend fun doIt() {
+            coroutineScope {
+                (0 until numberOfPartitions).map { part ->
+                    launch(Dispatchers.IO) {
+                        server.kafkaComparison(personTopicComparison {
+                            expectedDataTopic = kafkaTopicInfo {
+                                topicName = this@ComparisonKafkaTest.expectedDataTopic
+                                format = KafkaTopicInfo.Format.PROTO
+                            }
+                            actualDataTopic = kafkaTopicInfo {
+                                topicName = this@ComparisonKafkaTest.actualDataTopic
+                                format = KafkaTopicInfo.Format.XML
+                            }
+                            partitionsToCompare.add(part)
+                        })
+                    }
+                }.joinAll()
+            }
         }
+        runBlocking {
+            doIt()
+        }
+
+    }
 
 }
