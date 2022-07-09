@@ -39,8 +39,8 @@ fun comparison(id: String, init: Comparison.() -> Unit): ComparisonResult =
         result.identifier = id
         init()
         if (result.unexpectedBreaksCount > 0)
-            result.result = ComparisonResult.ResultType.BREAKS
+            result.result = ComparisonResultType.BREAKS
         else
-            result.result= ComparisonResult.ResultType.MATCHED
+            result.result= ComparisonResultType.MATCHED
         result.build()
     }

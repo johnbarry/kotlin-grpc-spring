@@ -49,8 +49,23 @@ service ComparisonService {
   rpc kafkaRecordCount(KafkaCountRequest) returns (KafkaCountResponse) {}
   rpc createTopic(TopicCreationRequest) returns (Empty) {}
   rpc deleteTopic(TopicDeletionRequest) returns (Empty) {}
-  rpc kafkaComparison (PersonTopicComparison) returns (Empty) {}
+  rpc kafkaComparison (PersonTopicComparison) returns (PersonTopicComparisonResult) {}
+  rpc kafkaComparisonReport(ComparisonReportRequest) returns (ComparisonSummary) {}
 }
+
+message ComparisonReportRequest {
+  string topicName = 1;
+}
+
+message ComparisonSummary {
+  string topicName = 1;
+  uint32 matches = 2;
+  uint32 breaks = 3;
+  uint32 onlyExpected = 4;
+  uint32 onlyActual = 5;
+  uint32 totalRecords = 6;
+}
+
 
 message TopicCreationRequest {
   string topic = 1;
@@ -87,6 +102,11 @@ message PersonTopicComparison {
   KafkaTopicInfo expectedDataTopic = 2;
   string resultTopicName = 3;
   repeated uint32 partitionsToCompare = 4;
+}
+
+message PersonTopicComparisonResult {
+  uint32 matchedRecords = 1;
+  uint32 unmatchedRecords = 2;
 }
 
 message PersonComparisonResponse {
@@ -129,16 +149,18 @@ message RecordComparison {
   repeated ComparisonBreak expectedBreaks = 3;
 }
 
+enum ComparisonResultType {
+  UNKNOWN = 0;
+  MATCHED = 1;
+  BREAKS = 2;
+  ONLY_EXPECTED = 3;
+  ONLY_ACTUAL = 4;
+}
+
+
 message ComparisonResult {
   string identifier = 1;
-  enum ResultType {
-    UNKNOWN = 0;
-    MATCHED = 1;
-    BREAKS = 2;
-    ONLY_EXPECTED = 3;
-    ONLY_ACTUAL = 4;
-  }
-  ResultType result = 2;
+  ComparisonResultType result = 2;
   repeated ComparisonBreak unexpectedBreaks = 3;
   repeated ComparisonBreak expectedBreaks = 4;
 }

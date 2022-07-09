@@ -1,8 +1,11 @@
 package io.grpc.examples.helloworld
 
 import kotlinx.coroutines.*
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import org.apache.kafka.common.errors.UnknownTopicOrPartitionException
 import org.junit.jupiter.api.*
+import java.util.concurrent.atomic.AtomicInteger
 
 @TestMethodOrder(MethodOrderer.OrderAnnotation::class)
 @Disabled
@@ -13,6 +16,11 @@ class ComparisonKafkaTest {
     private val outputDataTopic = "test1000.result.proto"
     private val recordCount = 1000L
     private val numberOfPartitions = 10
+
+    companion object {
+        var expectedMatches: Int = 0
+        var expectedMismatches: Int = 0
+    }
 
     private fun createTopic(t: String) =
         runBlocking {
@@ -59,7 +67,7 @@ class ComparisonKafkaTest {
     @Test
     internal fun `test data is generated`() =
         runBlocking {
-            val ret = server.generateTestData(
+            val ret: TestDataResponse = server.generateTestData(
                 testDataRequest {
                     records = recordCount
                     percentBreaks = 10
@@ -69,6 +77,8 @@ class ComparisonKafkaTest {
             )
             println("${ret.recordCount} records created")
             assert(ret.recordCount == recordCount)
+            expectedMismatches = ret.breakCount.toInt()
+            expectedMatches = ret.recordCount.toInt() - ret.breakCount.toInt()
             println("${ret.breakCount} breaks created")
             assert(ret.breakCount > 0)
         }
@@ -127,14 +137,21 @@ class ComparisonKafkaTest {
         }
     }
 
+    private operator fun PersonTopicComparisonResult.Builder.plusAssign(other: PersonTopicComparisonResult) {
+        matchedRecords += other.matchedRecords
+        unmatchedRecords += other.unmatchedRecords
+    }
+
     @Test
     @Order(6)
     internal fun `comparison runs`() {
         suspend fun doCompare() {
             coroutineScope {
+                val mutex = Mutex()
+                val totals = PersonTopicComparisonResult.newBuilder()
                 (0 until numberOfPartitions).map { part ->
                     launch(Dispatchers.IO) {
-                        server.kafkaComparison(personTopicComparison {
+                        val res: PersonTopicComparisonResult = server.kafkaComparison(personTopicComparison {
                             expectedDataTopic = kafkaTopicInfo {
                                 topicName = this@ComparisonKafkaTest.expectedDataTopic
                                 format = KafkaTopicInfo.Format.PROTO
@@ -146,8 +163,13 @@ class ComparisonKafkaTest {
                             resultTopicName = outputDataTopic
                             partitionsToCompare.add(part)
                         })
+                        mutex.withLock {
+                            totals += res
+                        }
                     }
                 }.joinAll()
+                assert(totals.matchedRecords == expectedMatches)
+                assert(totals.unmatchedRecords == expectedMismatches)
             }
         }
 
@@ -172,10 +194,25 @@ class ComparisonKafkaTest {
                 }.joinAll()
             }
         }
-
         runBlocking {
             doCount()
         }
-
+    }
+    @Test
+    @Order(7)
+    internal fun `expected breakdown in output kafka topic`() {
+        runBlocking {
+            server.kafkaComparisonReport(
+                comparisonReportRequest {
+                    topicName = outputDataTopic
+                }
+            ).let {
+                assert (it.topicName == outputDataTopic)
+                assert (it.matches == expectedMatches)
+                assert (it.breaks == expectedMismatches)
+                assert (it.onlyActual == 0)
+                assert (it.onlyExpected == 0)
+            }
+        }
     }
 }
