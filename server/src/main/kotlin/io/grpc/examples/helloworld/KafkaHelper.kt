@@ -97,7 +97,9 @@ class KafkaHelper(private val servers: String) {
             .doOnError {
                 log.error("Kafka send failed: $it")
             }
-            .doOnComplete { log.info("$topicName WRITE COMPLETE") }
+            .doOnComplete {
+                log.info("$topicName WRITE COMPLETE")
+            }
 
     private fun readFlux(topicName: String, rec: KafkaReceiver<KafkaKey, KafkaPayload>) =
         rec

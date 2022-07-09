@@ -20,16 +20,13 @@ import com.google.protobuf.Timestamp
 import com.google.protobuf.timestamp
 import io.grpc.Server
 import io.grpc.ServerBuilder
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.asFlow
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.firstOrNull
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.reactive.asFlow
 import kotlinx.coroutines.reactor.asFlux
-import kotlinx.coroutines.withContext
 import org.apache.kafka.clients.admin.NewTopic
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
@@ -418,6 +415,8 @@ class ComparisonService : ComparisonServiceGrpcKt.ComparisonServiceCoroutineImpl
 
 
     override suspend fun kafkaComparison(request: PersonTopicComparison): Empty {
+        if (!request.hasActualDataTopic() || !request.hasExpectedDataTopic() || request.resultTopicName.isNullOrEmpty() )
+            throw IllegalArgumentException("Missing input and/or output topic arguments")
         request.partitionsToCompareList.forEach { part ->
             fun <T> keyExtractor(p: Pair<KafkaKey, T>) = p.first
             fun <T> valueExtractor(p: Pair<KafkaKey, T>) = p.second
@@ -464,19 +463,33 @@ class ComparisonService : ComparisonServiceGrpcKt.ComparisonServiceCoroutineImpl
                 expectedMap.keys.minus(actualMap.keys).count().let {
                     println("$it records only in expected dataset")
                 }
-                actualMap.keys.intersect(expectedMap.keys).map { key ->
-                    val ret = comparePerson( personComparison {
-                        expected = expectedMap[key]!!
-                        actual = actualMap[key]!!
-                        identifier = expected.id.toString()
-                    } )
-                    if (ret.result == ComparisonResult.ResultType.MATCHED)
-                        matchCount++
-                    else
-                        breakCount++
-                    ret
-                }
+
+                val writeToKafka: Flux<ComparisonResult> =
+                    Flux.fromIterable(actualMap.keys.intersect(expectedMap.keys))
+                    .map { key ->
+                        runBlocking {
+                            val ret = comparePerson(personComparison {
+                                expected = expectedMap[key]!!
+                                actual = actualMap[key]!!
+                                identifier = expected.id.toString()
+                            })
+                            if (ret.result == ComparisonResult.ResultType.MATCHED)
+                                matchCount++
+                            else
+                                breakCount++
+                            ret
+                        }
+                    }
+
+                KafkaHelper(kafkaServers)
+                    .blockWriteProto(request.resultTopicName,
+                        writeToKafka
+                            .map {
+                                Triple(it.identifier, it, part)
+                            }
+                    )
                 println("partition $part: $matchCount matches and $breakCount breaks")
+
             } else
                 assert(false)
         }

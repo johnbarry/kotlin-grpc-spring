@@ -1,6 +1,7 @@
 package io.grpc.examples.helloworld
 
 import kotlinx.coroutines.*
+import org.apache.kafka.common.errors.UnknownTopicOrPartitionException
 import org.junit.jupiter.api.*
 
 @TestMethodOrder(MethodOrderer.OrderAnnotation::class)
@@ -9,6 +10,7 @@ class ComparisonKafkaTest {
     private val server = ComparisonService()
     private val actualDataTopic = "test1000.actual.xml"
     private val expectedDataTopic = "test1000.expected.proto"
+    private val outputDataTopic = "test1000.result.proto"
     private val recordCount = 1000L
     private val numberOfPartitions = 10
 
@@ -23,17 +25,19 @@ class ComparisonKafkaTest {
             )
         }
 
-    private fun deleteTopic(t: String) = try {
-        runBlocking {
-            server.deleteTopic(
-                topicDeletionRequest {
-                    topic = t
-                }
-            )
+    private fun deleteTopic(t: String) {
+        try {
+            runBlocking {
+                server.deleteTopic(
+                    topicDeletionRequest {
+                        topic = t
+                    }
+                )
+            }
+        } catch (ex: Exception) {
+            if (ex.cause !is UnknownTopicOrPartitionException)
+                throw ex
         }
-
-    } catch (_: Exception) {
-
     }
 
     @Test
@@ -46,6 +50,9 @@ class ComparisonKafkaTest {
             deleteTopic(expectedDataTopic)
             delay(1000L)
             createTopic(expectedDataTopic)
+            deleteTopic(outputDataTopic)
+            delay(1000L)
+            createTopic(outputDataTopic)
         }
 
     @Order(2)
@@ -103,7 +110,6 @@ class ComparisonKafkaTest {
                                 topic = expectedDataTopic
                                 partition = part
                             })
-                            //println("topic $expectedDataTopic partition $part has ${ret.records} records")
                             assert(ret.records == recordCount / numberOfPartitions)
                         },
                         launch(Dispatchers.IO) {
@@ -111,7 +117,6 @@ class ComparisonKafkaTest {
                                 topic = actualDataTopic
                                 partition = part
                             })
-                            //println("topic $actualDataTopic partition $part has ${ret.records} records")
                             assert(ret.records == recordCount / numberOfPartitions)
                         })
                 }.joinAll()
@@ -124,8 +129,8 @@ class ComparisonKafkaTest {
 
     @Test
     @Order(6)
-    internal fun `comparison runs`(): Unit {
-        suspend fun doIt() {
+    internal fun `comparison runs`() {
+        suspend fun doCompare() {
             coroutineScope {
                 (0 until numberOfPartitions).map { part ->
                     launch(Dispatchers.IO) {
@@ -138,16 +143,39 @@ class ComparisonKafkaTest {
                                 topicName = this@ComparisonKafkaTest.actualDataTopic
                                 format = KafkaTopicInfo.Format.XML
                             }
+                            resultTopicName = outputDataTopic
                             partitionsToCompare.add(part)
                         })
                     }
                 }.joinAll()
             }
         }
+
         runBlocking {
-            doIt()
+            doCompare()
         }
 
     }
+    @Test
+    @Order(6)
+    internal fun `comparison populates output kafka topic`() {
+        suspend fun doCount() {
+            coroutineScope {
+                (0 until numberOfPartitions).map { part ->
+                    launch(Dispatchers.IO) {
+                        val ret = server.kafkaRecordCount(kafkaCountRequest {
+                            topic = outputDataTopic
+                            partition = part
+                        })
+                        assert(ret.records == recordCount / numberOfPartitions)
+                    }
+                }.joinAll()
+            }
+        }
 
+        runBlocking {
+            doCount()
+        }
+
+    }
 }
