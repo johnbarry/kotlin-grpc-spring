@@ -1,11 +1,11 @@
 package io.grpc.examples.helloworld
 
 import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.apache.kafka.common.errors.UnknownTopicOrPartitionException
 import org.junit.jupiter.api.*
-import java.util.concurrent.atomic.AtomicInteger
 
 @TestMethodOrder(MethodOrderer.OrderAnnotation::class)
 @Disabled
@@ -142,6 +142,18 @@ class ComparisonKafkaTest {
         unmatchedRecords += other.unmatchedRecords
     }
 
+    private fun comparisonInfo(): PersonTopicComparison = personTopicComparison {
+        expectedDataTopic = kafkaTopicInfo {
+            topicName = this@ComparisonKafkaTest.expectedDataTopic
+            format = KafkaTopicInfo.Format.PROTO
+        }
+        actualDataTopic = kafkaTopicInfo {
+            topicName = this@ComparisonKafkaTest.actualDataTopic
+            format = KafkaTopicInfo.Format.XML
+        }
+        resultTopicName = outputDataTopic
+    }
+
     @Test
     @Order(6)
     internal fun `comparison runs`() {
@@ -151,18 +163,11 @@ class ComparisonKafkaTest {
                 val totals = PersonTopicComparisonResult.newBuilder()
                 (0 until numberOfPartitions).map { part ->
                     launch(Dispatchers.IO) {
-                        val res: PersonTopicComparisonResult = server.kafkaComparison(personTopicComparison {
-                            expectedDataTopic = kafkaTopicInfo {
-                                topicName = this@ComparisonKafkaTest.expectedDataTopic
-                                format = KafkaTopicInfo.Format.PROTO
-                            }
-                            actualDataTopic = kafkaTopicInfo {
-                                topicName = this@ComparisonKafkaTest.actualDataTopic
-                                format = KafkaTopicInfo.Format.XML
-                            }
-                            resultTopicName = outputDataTopic
-                            partitionsToCompare.add(part)
-                        })
+                        val res: PersonTopicComparisonResult = server.kafkaComparison(
+                            comparisonInfo().toBuilder()
+                                .addPartitionsToCompare(part)
+                                .build()
+                        )
                         mutex.withLock {
                             totals += res
                         }
@@ -178,6 +183,7 @@ class ComparisonKafkaTest {
         }
 
     }
+
     @Test
     @Order(6)
     internal fun `comparison populates output kafka topic`() {
@@ -198,21 +204,92 @@ class ComparisonKafkaTest {
             doCount()
         }
     }
+
     @Test
     @Order(7)
     internal fun `expected breakdown in output kafka topic`() {
         runBlocking {
             server.kafkaComparisonReport(
-                comparisonReportRequest {
+                comparisonReportTopic {
                     topicName = outputDataTopic
                 }
             ).let {
-                assert (it.topicName == outputDataTopic)
-                assert (it.matches == expectedMatches)
-                assert (it.breaks == expectedMismatches)
-                assert (it.onlyActual == 0)
-                assert (it.onlyExpected == 0)
+                assert(it.topicName == outputDataTopic)
+                assert(it.matches == expectedMatches)
+                assert(it.breaks == expectedMismatches)
+                assert(it.onlyActual == 0)
+                assert(it.onlyExpected == 0)
             }
+        }
+    }
+
+    @Test
+    @Order(8)
+    internal fun `check five mismatches`() {
+        val number = 5
+        runBlocking {
+            val reqBuilder = PersonRecordRequest.newBuilder()
+            reqBuilder.topicInfo = comparisonInfo()
+            val ct = server.comparisonResult(
+                comparisonReportTopic {
+                    topicName = outputDataTopic
+                }
+            )
+                .filter { it.result == ComparisonResultType.BREAKS }
+                .take(number)
+                .map { brk ->
+                    reqBuilder.addIdentifier(brk.identifier)
+                }
+                .count()
+            assert(ct == number)
+            val ct2 = server.personRecords(reqBuilder.build())
+                .map { rec ->
+                    val cmp = server.comparePerson(
+                        personComparison {
+                            actual = rec.actual
+                            expected = rec.expected
+                            identifier = rec.identifier
+                        } )
+                    assert(cmp.result == ComparisonResultType.BREAKS)
+                    assert(cmp.identifier == rec.identifier)
+                }
+                .count()
+            assert(ct2 == 5)
+        }
+    }
+
+    @Test
+    @Order(9)
+    internal fun `check five matches`() {
+        val number = 5
+        runBlocking {
+            val reqBuilder = PersonRecordRequest.newBuilder()
+            reqBuilder.topicInfo = comparisonInfo()
+            val ct = server.comparisonResult(
+                comparisonReportTopic {
+                    topicName = outputDataTopic
+                }
+            )
+                .filter { it.result == ComparisonResultType.MATCHED }
+                .take(number)
+                .map { brk ->
+                    reqBuilder.addIdentifier(brk.identifier)
+                }
+                .count()
+            assert(ct == number)
+            val ct2 = server.personRecords(reqBuilder.build())
+                .map { rec ->
+                    val cmp = server.comparePerson(
+                        personComparison {
+                            actual = rec.actual
+                            expected = rec.expected
+                            identifier = rec.identifier
+                        } )
+                    assert(cmp.result == ComparisonResultType.MATCHED)
+                    assert(cmp.identifier == rec.identifier)
+                }
+                .count()
+            assert(ct2 == 5)
         }
     }
 }

@@ -50,10 +50,23 @@ service ComparisonService {
   rpc createTopic(TopicCreationRequest) returns (Empty) {}
   rpc deleteTopic(TopicDeletionRequest) returns (Empty) {}
   rpc kafkaComparison (PersonTopicComparison) returns (PersonTopicComparisonResult) {}
-  rpc kafkaComparisonReport(ComparisonReportRequest) returns (ComparisonSummary) {}
+  rpc kafkaComparisonReport(ComparisonReportTopic) returns (ComparisonSummary) {}
+  rpc comparisonResult(ComparisonReportTopic) returns (stream ComparisonResult) {}
+  rpc personRecords(PersonRecordRequest) returns (stream PersonRecordLookup) {}
 }
 
-message ComparisonReportRequest {
+message PersonRecordRequest {
+  PersonTopicComparison topicInfo = 1;
+  repeated string identifier = 2;
+}
+
+message PersonRecordLookup {
+  string identifier = 1;
+  Person expected = 2;
+  Person2 actual = 3;
+}
+
+message ComparisonReportTopic {
   string topicName = 1;
 }
 

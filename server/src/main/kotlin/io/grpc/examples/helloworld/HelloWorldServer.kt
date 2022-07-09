@@ -414,6 +414,53 @@ class ComparisonService : ComparisonServiceGrpcKt.ComparisonServiceCoroutineImpl
 
         }
 
+    private fun actualFlux(request: PersonTopicComparison, part: Int? = null): Flux<Pair<KafkaKey, Person2>> =
+        KafkaHelper(kafkaServers)
+            .let {
+                if (part == null)
+                    it.read(
+                        kafkaConsumerName,
+                        kafkaConsumerGroup,
+                        request.actualDataTopic.topicName,
+                        readEarliest = true
+                    )
+                else
+                    it.readPartition(kafkaConsumerGroup, request.actualDataTopic.topicName, part, readEarliest = true)
+            }
+            .map {
+                it.key() to when (request.actualDataTopic.format) {
+                    KafkaTopicInfo.Format.JSON -> Person2.newBuilder().apply { fromJson(String(it.value())) }
+                        .build()
+                    KafkaTopicInfo.Format.XML -> Person2.newBuilder().apply { fromXML(String(it.value())) }
+                        .build()
+                    KafkaTopicInfo.Format.PROTO -> Person2.parseFrom(it.value())
+                    else -> throw Exception("Topic format undefined")
+                }
+            }
+
+    private fun expectedFlux(request: PersonTopicComparison, part: Int? = null): Flux<Pair<KafkaKey, Person>> =
+        KafkaHelper(kafkaServers)
+            .let {
+                if (part == null)
+                    it.read(
+                        kafkaConsumerName,
+                        kafkaConsumerGroup,
+                        request.expectedDataTopic.topicName,
+                        readEarliest = true
+                    )
+                else
+                    it.readPartition(kafkaConsumerGroup, request.expectedDataTopic.topicName, part, readEarliest = true)
+            }
+            .map {
+                it.key() to when (request.expectedDataTopic.format) {
+                    KafkaTopicInfo.Format.JSON -> Person.newBuilder().apply { fromJson(it.value().toString()) }
+                        .build()
+                    KafkaTopicInfo.Format.XML -> Person.newBuilder().apply { fromXML(String(it.value())) }
+                        .build()
+                    KafkaTopicInfo.Format.PROTO -> Person.parseFrom(it.value())
+                    else -> throw Exception("Topic format undefined")
+                }
+            }
 
     override suspend fun kafkaComparison(request: PersonTopicComparison): PersonTopicComparisonResult {
         val mutex = Mutex()
@@ -429,35 +476,14 @@ class ComparisonService : ComparisonServiceGrpcKt.ComparisonServiceCoroutineImpl
             var matchCount = 0
             var breakCount = 0
 
-            val actualMap: Map<KafkaKey, Person2>? = KafkaHelper(kafkaServers)
-                .readPartition(kafkaConsumerGroup, request.actualDataTopic.topicName, part, readEarliest = true)
-                .log()
-                .map {
-                    it.key() to when (request.actualDataTopic.format) {
-                        KafkaTopicInfo.Format.JSON -> Person2.newBuilder().apply { fromJson(String(it.value())) }
-                            .build()
-                        KafkaTopicInfo.Format.XML -> Person2.newBuilder().apply { fromXML(String(it.value())) }
-                            .build()
-                        KafkaTopicInfo.Format.PROTO -> Person2.parseFrom(it.value())
-                        else -> throw Exception("Topic format undefined")
-                    }
-                }
-                .collectMap(::keyExtractor, ::valueExtractor)
-                .block()
-            val expectedMap: Map<KafkaKey, Person>? = KafkaHelper(kafkaServers)
-                .readPartition(kafkaConsumerGroup, request.expectedDataTopic.topicName, part, readEarliest = true)
-                .map {
-                    it.key() to when (request.expectedDataTopic.format) {
-                        KafkaTopicInfo.Format.JSON -> Person.newBuilder().apply { fromJson(it.value().toString()) }
-                            .build()
-                        KafkaTopicInfo.Format.XML -> Person.newBuilder().apply { fromXML(String(it.value())) }
-                            .build()
-                        KafkaTopicInfo.Format.PROTO -> Person.parseFrom(it.value())
-                        else -> throw Exception("Topic format undefined")
-                    }
-                }
-                .collectMap(::keyExtractor, ::valueExtractor)
-                .block()
+            val actualMap: Map<KafkaKey, Person2>? =
+                actualFlux(request, part)
+                    .collectMap(::keyExtractor, ::valueExtractor)
+                    .block()
+            val expectedMap: Map<KafkaKey, Person>? =
+                expectedFlux(request, part)
+                    .collectMap(::keyExtractor, ::valueExtractor)
+                    .block()
             if (actualMap != null && expectedMap != null) {
                 actualMap.keys.intersect(expectedMap.keys).count().let {
                     println("$it records in both datasets")
@@ -506,26 +532,62 @@ class ComparisonService : ComparisonServiceGrpcKt.ComparisonServiceCoroutineImpl
         return ret.build()
     }
 
-    override suspend fun kafkaComparisonReport(request: ComparisonReportRequest): ComparisonSummary {
+    override fun comparisonResult(request: ComparisonReportTopic): Flow<ComparisonResult> =
+        KafkaHelper(kafkaServers)
+            .read(kafkaConsumerName, kafkaConsumerGroup, request.topicName, readEarliest = true)
+            .map {
+                ComparisonResult.parseFrom(it.value())
+            }.asFlow()
+
+    override suspend fun kafkaComparisonReport(request: ComparisonReportTopic): ComparisonSummary {
         val summaryBuilder = ComparisonSummary.newBuilder()
         summaryBuilder.topicName = request.topicName
 
-        summaryBuilder.totalRecords = KafkaHelper(kafkaServers)
-            .read(kafkaConsumerName, kafkaConsumerGroup, request.topicName, readEarliest = true)
+        summaryBuilder.totalRecords = comparisonResult(request)
+            .asFlux()
             .map {
-                val res = ComparisonResult.parseFrom(it.value())
-                when (res.result) {
+                when (it.result) {
                     ComparisonResultType.MATCHED -> summaryBuilder.matches++
                     ComparisonResultType.BREAKS -> summaryBuilder.breaks++
                     ComparisonResultType.ONLY_ACTUAL -> summaryBuilder.onlyActual++
                     ComparisonResultType.ONLY_EXPECTED -> summaryBuilder.onlyExpected++
-                    else -> throw java.lang.Exception("Missing status for record ${res.identifier}")
+                    else -> throw java.lang.Exception("Missing status for record ${it.identifier}")
                 }
             }.count()
             .block()?.toInt() ?: 0
 
 
         return summaryBuilder.build()
+    }
+
+    override fun personRecords(request: PersonRecordRequest): Flow<PersonRecordLookup> {
+        val lookupBuilders = request.identifierList.associateWith {
+            PersonRecordLookup.newBuilder()
+        }
+        actualFlux(request.topicInfo)
+            .filter {
+                it.first in request.identifierList
+            }
+            .map {
+                lookupBuilders[it.first] ?. actual = it.second
+                lookupBuilders[it.first] ?. identifier = it.first
+            }
+            .blockLast()
+        expectedFlux(request.topicInfo)
+            .filter {
+                it.first in request.identifierList
+            }
+            .map {
+                lookupBuilders[it.first] ?. expected = it.second
+                lookupBuilders[it.first] ?. identifier = it.first
+            }
+            .blockLast()
+        return lookupBuilders
+            .values
+            .mapNotNull {
+                it ?. build()
+            }
+            .asFlow()
     }
 }
 
