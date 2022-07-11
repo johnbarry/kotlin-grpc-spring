@@ -1,7 +1,10 @@
 package io.grpc.examples.helloworld
 
 import kotlinx.coroutines.*
-import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.flow.count
+import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.take
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.apache.kafka.common.errors.UnknownTopicOrPartitionException
@@ -10,7 +13,10 @@ import org.junit.jupiter.api.*
 @TestMethodOrder(MethodOrderer.OrderAnnotation::class)
 @Disabled
 class ComparisonKafkaTest {
-    private val server = ComparisonService()
+    private val server = PersonComparisonService()
+    private val kafka = KafkaService()
+    private val testData = TestDataService()
+    private val result = ComparisonResultService()
     private val actualDataTopic = "test1000.actual.xml"
     private val expectedDataTopic = "test1000.expected.proto"
     private val outputDataTopic = "test1000.result.proto"
@@ -24,7 +30,7 @@ class ComparisonKafkaTest {
 
     private fun createTopic(t: String) =
         runBlocking {
-            server.createTopic(
+            kafka.createTopic(
                 topicCreationRequest {
                     topic = t
                     partitions = numberOfPartitions
@@ -36,7 +42,7 @@ class ComparisonKafkaTest {
     private fun deleteTopic(t: String) {
         try {
             runBlocking {
-                server.deleteTopic(
+                kafka.deleteTopic(
                     topicDeletionRequest {
                         topic = t
                     }
@@ -67,7 +73,7 @@ class ComparisonKafkaTest {
     @Test
     internal fun `test data is generated`() =
         runBlocking {
-            val ret: TestDataResponse = server.generateTestData(
+            val ret: TestDataResponse = testData.generateTestData(
                 testDataRequest {
                     records = recordCount
                     percentBreaks = 10
@@ -87,7 +93,7 @@ class ComparisonKafkaTest {
     @Order(3)
     internal fun `actual data topic populated correctly`() =
         runBlocking {
-            val ret = server.kafkaRecordCount(kafkaCountRequest {
+            val ret = kafka.kafkaRecordCount(kafkaCountRequest {
                 topic = actualDataTopic
                 allPartitions = true
             })
@@ -99,7 +105,7 @@ class ComparisonKafkaTest {
     @Order(4)
     internal fun `expected data topic populated correctly`() =
         runBlocking {
-            val ret = server.kafkaRecordCount(kafkaCountRequest {
+            val ret = kafka.kafkaRecordCount(kafkaCountRequest {
                 topic = expectedDataTopic
                 allPartitions = true
             })
@@ -116,14 +122,14 @@ class ComparisonKafkaTest {
                 (0 until numberOfPartitions).flatMap { part ->
                     listOf(
                         launch(Dispatchers.IO) {
-                            val ret = server.kafkaRecordCount(kafkaCountRequest {
+                            val ret = kafka.kafkaRecordCount(kafkaCountRequest {
                                 topic = expectedDataTopic
                                 partition = part
                             })
                             assert(ret.records == recordCount / numberOfPartitions)
                         },
                         launch(Dispatchers.IO) {
-                            val ret = server.kafkaRecordCount(kafkaCountRequest {
+                            val ret = kafka.kafkaRecordCount(kafkaCountRequest {
                                 topic = actualDataTopic
                                 partition = part
                             })
@@ -191,7 +197,7 @@ class ComparisonKafkaTest {
             coroutineScope {
                 (0 until numberOfPartitions).map { part ->
                     launch(Dispatchers.IO) {
-                        val ret = server.kafkaRecordCount(kafkaCountRequest {
+                        val ret = kafka.kafkaRecordCount(kafkaCountRequest {
                             topic = outputDataTopic
                             partition = part
                         })
@@ -209,7 +215,7 @@ class ComparisonKafkaTest {
     @Order(7)
     internal fun `expected breakdown in output kafka topic`() {
         runBlocking {
-            server.kafkaComparisonReport(
+            result.kafkaComparisonReport(
                 comparisonReportTopic {
                     topicName = outputDataTopic
                 }
@@ -230,7 +236,7 @@ class ComparisonKafkaTest {
         runBlocking {
             val reqBuilder = PersonRecordRequest.newBuilder()
             reqBuilder.topicInfo = comparisonInfo()
-            val ct = server.comparisonResult(
+            val ct = result.comparisonResult(
                 comparisonReportTopic {
                     topicName = outputDataTopic
                 }
@@ -265,7 +271,7 @@ class ComparisonKafkaTest {
         runBlocking {
             val reqBuilder = PersonRecordRequest.newBuilder()
             reqBuilder.topicInfo = comparisonInfo()
-            val ct = server.comparisonResult(
+            val ct = result.comparisonResult(
                 comparisonReportTopic {
                     topicName = outputDataTopic
                 }

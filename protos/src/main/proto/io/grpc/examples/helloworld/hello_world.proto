@@ -43,16 +43,25 @@ service FriendService {
 
 }
 
-service ComparisonService {
-  rpc comparePerson(PersonComparison) returns (ComparisonResult) {}
+service TestDataService {
   rpc generateTestData(TestDataRequest) returns (TestDataResponse) {}
+}
+
+service PersonComparisonService {
+  rpc comparePerson(PersonComparison) returns (ComparisonResult) {}
+  rpc kafkaComparison (PersonTopicComparison) returns (PersonTopicComparisonResult) {}
+  rpc personRecords(PersonRecordRequest) returns (stream PersonRecordLookup) {}
+}
+
+service ComparisonResultService {
+  rpc kafkaComparisonReport(ComparisonReportTopic) returns (ComparisonSummary) {}
+  rpc comparisonResult(ComparisonReportTopic) returns (stream ComparisonResult) {}
+}
+
+service KafkaService {
   rpc kafkaRecordCount(KafkaCountRequest) returns (KafkaCountResponse) {}
   rpc createTopic(TopicCreationRequest) returns (Empty) {}
   rpc deleteTopic(TopicDeletionRequest) returns (Empty) {}
-  rpc kafkaComparison (PersonTopicComparison) returns (PersonTopicComparisonResult) {}
-  rpc kafkaComparisonReport(ComparisonReportTopic) returns (ComparisonSummary) {}
-  rpc comparisonResult(ComparisonReportTopic) returns (stream ComparisonResult) {}
-  rpc personRecords(PersonRecordRequest) returns (stream PersonRecordLookup) {}
 }
 
 message PersonRecordRequest {

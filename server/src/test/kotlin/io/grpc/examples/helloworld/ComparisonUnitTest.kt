@@ -4,7 +4,7 @@ import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Test
 
 class ComparisonUnitTest {
-    private val server = ComparisonService()
+    private val server = PersonComparisonService()
 
     private val jsonExpected1 = person {
         id = 50
