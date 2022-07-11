@@ -1,10 +1,7 @@
 package io.grpc.examples.helloworld
 
 import kotlinx.coroutines.*
-import kotlinx.coroutines.flow.count
-import kotlinx.coroutines.flow.filter
-import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.flow.take
+import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.apache.kafka.common.errors.UnknownTopicOrPartitionException
@@ -42,7 +39,7 @@ class ComparisonKafkaTest {
             stateMatchCount = 0
             stateMismatchCount = 0
             stateActualAndExpectedCount = 0
-            stateMissingActualCount= 0
+            stateMissingActualCount = 0
             stateMissingExpectedCount = 0
             stateTotalCount = 0
         }
@@ -133,7 +130,6 @@ class ComparisonKafkaTest {
             println("${ret.records} expected data records populated")
             assert(ret.records == recordCount)
         }
-
 
     @Test
     @Order(5)
@@ -283,12 +279,12 @@ class ComparisonKafkaTest {
                             actual = rec.actual
                             expected = rec.expected
                             identifier = rec.identifier
-                        } )
+                        })
                     assert(cmp.result == ComparisonResultType.BREAKS)
                     assert(cmp.identifier == rec.identifier)
                 }
                 .count()
-            assert(ct2 == 5)
+            assert(ct2 == number)
         }
     }
 
@@ -318,12 +314,12 @@ class ComparisonKafkaTest {
                             actual = rec.actual
                             expected = rec.expected
                             identifier = rec.identifier
-                        } )
+                        })
                     assert(cmp.result == ComparisonResultType.MATCHED)
                     assert(cmp.identifier == rec.identifier)
                 }
                 .count()
-            assert(ct2 == 5)
+            assert(ct2 == number)
         }
     }
 
@@ -366,6 +362,7 @@ class ComparisonKafkaTest {
             stateMissingActualCount = ret.missingActualCount
             stateMissingExpectedCount = ret.missingExpectedCount
         }
+
     @Test
     @Order(12)
     internal fun `missing comparison runs`() {
@@ -387,8 +384,8 @@ class ComparisonKafkaTest {
                 }.joinAll()
                 assert(totals.matchedRecords == stateMatchCount)
                 assert(totals.unmatchedRecords == stateMismatchCount)
-                assert(totals.missingExpected == stateMissingExpectedCount )
-                assert(totals.missingActual == stateMissingActualCount )
+                assert(totals.missingExpected == stateMissingExpectedCount)
+                assert(totals.missingActual == stateMissingActualCount)
                 assert(totals.totalRecords == stateTotalCount)
             }
         }
@@ -439,6 +436,61 @@ class ComparisonKafkaTest {
         }
     }
 
+    @Test
+    @Order(15)
+    internal fun `check missing expected records`() {
+        val number = 5
+        runBlocking {
+
+            val reqBuilder = PersonRecordRequest.newBuilder()
+            reqBuilder.topicInfo = missingComparisonInfo()
+            val ct = result.comparisonResult(
+                comparisonReportTopic {
+                    topicName = missingOutputDataTopic
+                }
+            )
+                .filter { it.result == ComparisonResultType.ONLY_ACTUAL }
+                .take(number)
+                .map { brk ->
+                    reqBuilder.addIdentifier(brk.identifier)
+                }
+                .count()
+            assert(ct == number)
+            val ct2 =
+                server.personRecords(reqBuilder.build())
+                .map { assert(it.hasActual() && !it.hasExpected())
+                }
+                .count()
+            assert(ct2 == number)
+        }
+    }
+
+    @Test
+    @Order(16)
+    internal fun `check missing actual records`() {
+        val number = 5
+        runBlocking {
+            val reqBuilder = PersonRecordRequest.newBuilder()
+            reqBuilder.topicInfo = missingComparisonInfo()
+            val ct = result.comparisonResult(
+                comparisonReportTopic {
+                    topicName = missingOutputDataTopic
+                }
+            )
+                .filter { it.result == ComparisonResultType.ONLY_EXPECTED }
+                .take(number)
+                .map { brk ->
+                    reqBuilder.addIdentifier(brk.identifier)
+                }
+                .count()
+
+            assert(ct == number)
+            val ct2 = server.personRecords(reqBuilder.build())
+                .map { assert(!it.hasActual() && it.hasExpected()) }
+                .count()
+            assert(ct2 == number)
+        }
+    }
 
 
 }
