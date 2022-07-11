@@ -12,6 +12,14 @@ fun List<String>.multiLineAddress(): String =
     filter { it.isNotEmpty() }
         .joinToString("\n")
 
+operator fun PersonTopicComparisonResult.Builder.plusAssign(other: PersonTopicComparisonResult.Builder) {
+    matchedRecords += other.matchedRecords
+    unmatchedRecords += other.unmatchedRecords
+    missingExpected += other.missingExpected
+    missingActual += other.missingActual
+    totalRecords += other.totalRecords
+}
+
 class PersonComparisonService : PersonComparisonServiceGrpcKt.PersonComparisonServiceCoroutineImplBase(), ServiceKafkaConfig {
 
     override suspend fun comparePerson(request: PersonComparison): ComparisonResult =
@@ -129,8 +137,7 @@ class PersonComparisonService : PersonComparisonServiceGrpcKt.PersonComparisonSe
             fun <T> keyExtractor(p: Pair<KafkaKey, T>) = p.first
             fun <T> valueExtractor(p: Pair<KafkaKey, T>) = p.second
 
-            var matchCount = 0
-            var breakCount = 0
+            val partitionResult = PersonTopicComparisonResult.newBuilder()
 
             val actualMap: Map<KafkaKey, Person2>? =
                 actualFlux(request, part)
@@ -141,29 +148,41 @@ class PersonComparisonService : PersonComparisonServiceGrpcKt.PersonComparisonSe
                     .collectMap(::keyExtractor, ::valueExtractor)
                     .block()
             if (actualMap != null && expectedMap != null) {
-                actualMap.keys.intersect(expectedMap.keys).count().let {
-                    println("$it records in both datasets")
-                }
-                actualMap.keys.minus(expectedMap.keys).count().let {
-                    println("$it records only in actual dataset")
-                }
-                expectedMap.keys.minus(actualMap.keys).count().let {
-                    println("$it records only in expected dataset")
-                }
-
                 val writeToKafka: Flux<ComparisonResult> =
-                    Flux.fromIterable(actualMap.keys.intersect(expectedMap.keys))
+                    Flux.fromIterable(actualMap.keys.union(expectedMap.keys))
                         .map { key ->
                             runBlocking {
-                                comparePerson(personComparison {
-                                    expected = expectedMap[key]!!
-                                    actual = actualMap[key]!!
-                                    identifier = expected.id.toString()
-                                }).apply {
-                                    if (result == ComparisonResultType.MATCHED)
-                                        matchCount++
+                                val expected = expectedMap[key]
+                                val actual = actualMap[key]
+                                partitionResult.totalRecords ++
+
+                                (if (expected != null && actual != null) {
+                                    comparePerson(personComparison {
+                                        this.expected = expectedMap[key]!!
+                                        this.actual = actualMap[key]!!
+                                        identifier = expected.id.toString()
+                                    })
+                                } else {
+                                    if (expected == null && actual == null)
+                                        throw Exception("Unexpected NULL values for expected and actual")
+                                    if (expected == null)
+                                        comparisonResult {
+                                            identifier = actual!!.id.toString()
+                                            result = ComparisonResultType.ONLY_ACTUAL
+                                        }
                                     else
-                                        breakCount++
+                                        comparisonResult {
+                                            identifier = expected.id.toString()
+                                            result= ComparisonResultType.ONLY_EXPECTED
+                                        }
+                                }).apply {
+                                    when (result) {
+                                        ComparisonResultType.MATCHED -> partitionResult.matchedRecords  ++
+                                        ComparisonResultType.BREAKS -> partitionResult.unmatchedRecords ++
+                                        ComparisonResultType.ONLY_EXPECTED -> partitionResult.missingActual++
+                                        ComparisonResultType.ONLY_ACTUAL -> partitionResult.missingExpected++
+                                        else -> throw Exception("Unexpected compariosn type $result for key $key")
+                                    }
                                 }
                             }
                         }
@@ -176,9 +195,8 @@ class PersonComparisonService : PersonComparisonServiceGrpcKt.PersonComparisonSe
                             }
                     )
                 mutex.withLock {
-                    ret.matchedRecords += matchCount
-                    ret.unmatchedRecords += breakCount
-                    println("partition $part: $matchCount matches and $breakCount breaks")
+                    ret += partitionResult
+                    println("partition $part: ${partitionResult.matchedRecords} matches and ${partitionResult.unmatchedRecords} breaks")
                     println("totals now: ${ret.matchedRecords} matches and ${ret.unmatchedRecords} breaks")
                 }
 

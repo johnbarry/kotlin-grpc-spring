@@ -9,6 +9,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.apache.kafka.common.errors.UnknownTopicOrPartitionException
 import org.junit.jupiter.api.*
+import java.util.concurrent.atomic.AtomicLong
 
 @TestMethodOrder(MethodOrderer.OrderAnnotation::class)
 @Disabled
@@ -17,15 +18,34 @@ class ComparisonKafkaTest {
     private val kafka = KafkaService()
     private val testData = TestDataService()
     private val result = ComparisonResultService()
+
+    // initial set of tests with same identifiers in actual and expected
     private val actualDataTopic = "test1000.actual.xml"
     private val expectedDataTopic = "test1000.expected.proto"
     private val outputDataTopic = "test1000.result.proto"
     private val recordCount = 1000L
     private val numberOfPartitions = 10
 
+    // later tests with differing identifiers in actual and expected
+    private val missingActualDataTopic = "missingtests.actual.xml"
+    private val missingExpectedDataTopic = "missingtests.expected.proto"
+    private val missingOutputDataTopic = "missingtests.result.proto"
+
     companion object {
-        var expectedMatches: Int = 0
-        var expectedMismatches: Int = 0
+        var stateMatchCount: Int = 0
+        var stateMismatchCount: Int = 0
+        var stateActualAndExpectedCount: Int = 0
+        var stateMissingActualCount: Int = 0
+        var stateMissingExpectedCount: Int = 0
+        var stateTotalCount: Int = 0
+        fun clearTotals() {
+            stateMatchCount = 0
+            stateMismatchCount = 0
+            stateActualAndExpectedCount = 0
+            stateMissingActualCount= 0
+            stateMissingExpectedCount = 0
+            stateTotalCount = 0
+        }
     }
 
     private fun createTopic(t: String) =
@@ -81,10 +101,11 @@ class ComparisonKafkaTest {
                     expectedDataTopic = this@ComparisonKafkaTest.expectedDataTopic
                 }
             )
-            println("${ret.recordCount} records created")
-            assert(ret.recordCount == recordCount)
-            expectedMismatches = ret.breakCount.toInt()
-            expectedMatches = ret.recordCount.toInt() - ret.breakCount.toInt()
+            println("${ret.actualCount} records created")
+            assert(ret.actualCount == recordCount)
+            stateMismatchCount = ret.breakCount.toInt()
+            stateMatchCount = ret.actualCount.toInt() - ret.breakCount.toInt()
+            stateTotalCount = ret.totalCount.toInt()
             println("${ret.breakCount} breaks created")
             assert(ret.breakCount > 0)
         }
@@ -143,11 +164,6 @@ class ComparisonKafkaTest {
         }
     }
 
-    private operator fun PersonTopicComparisonResult.Builder.plusAssign(other: PersonTopicComparisonResult) {
-        matchedRecords += other.matchedRecords
-        unmatchedRecords += other.unmatchedRecords
-    }
-
     private fun comparisonInfo(): PersonTopicComparison = personTopicComparison {
         expectedDataTopic = kafkaTopicInfo {
             topicName = this@ComparisonKafkaTest.expectedDataTopic
@@ -158,6 +174,18 @@ class ComparisonKafkaTest {
             format = KafkaTopicInfo.Format.XML
         }
         resultTopicName = outputDataTopic
+    }
+
+    private fun missingComparisonInfo(): PersonTopicComparison = personTopicComparison {
+        expectedDataTopic = kafkaTopicInfo {
+            topicName = this@ComparisonKafkaTest.missingExpectedDataTopic
+            format = KafkaTopicInfo.Format.PROTO
+        }
+        actualDataTopic = kafkaTopicInfo {
+            topicName = this@ComparisonKafkaTest.missingActualDataTopic
+            format = KafkaTopicInfo.Format.XML
+        }
+        resultTopicName = missingOutputDataTopic
     }
 
     @Test
@@ -175,12 +203,12 @@ class ComparisonKafkaTest {
                                 .build()
                         )
                         mutex.withLock {
-                            totals += res
+                            totals += res.toBuilder()
                         }
                     }
                 }.joinAll()
-                assert(totals.matchedRecords == expectedMatches)
-                assert(totals.unmatchedRecords == expectedMismatches)
+                assert(totals.matchedRecords == stateMatchCount)
+                assert(totals.unmatchedRecords == stateMismatchCount)
             }
         }
 
@@ -221,8 +249,8 @@ class ComparisonKafkaTest {
                 }
             ).let {
                 assert(it.topicName == outputDataTopic)
-                assert(it.matches == expectedMatches)
-                assert(it.breaks == expectedMismatches)
+                assert(it.matches == stateMatchCount)
+                assert(it.breaks == stateMismatchCount)
                 assert(it.onlyActual == 0)
                 assert(it.onlyExpected == 0)
             }
@@ -298,4 +326,119 @@ class ComparisonKafkaTest {
             assert(ct2 == 5)
         }
     }
+
+    @Test
+    @Order(10)
+    internal fun `missing data topics created`(): Unit =
+        runBlocking {
+            deleteTopic(missingActualDataTopic)
+            delay(1000L)
+            createTopic(missingActualDataTopic)
+            deleteTopic(missingExpectedDataTopic)
+            delay(1000L)
+            createTopic(missingExpectedDataTopic)
+            deleteTopic(missingOutputDataTopic)
+            delay(1000L)
+            createTopic(missingOutputDataTopic)
+        }
+
+    @Order(11)
+    @Test
+    internal fun `missing test data is generated`() =
+        runBlocking {
+            clearTotals()
+
+            val ret: TestDataResponse = testData.generateTestData(
+                testDataRequest {
+                    records = recordCount
+                    percentBreaks = 0
+                    missingActualPercent = 20
+                    missingExpectedPercent = 20
+                    actualDataTopic = this@ComparisonKafkaTest.missingActualDataTopic
+                    expectedDataTopic = this@ComparisonKafkaTest.missingExpectedDataTopic
+                }
+            )
+            println("${ret.totalCount} records created, ${ret.actualCount} actual and ${ret.expectedCount} expected")
+            stateActualAndExpectedCount = (ret.breakCount + ret.matchCount).toInt()
+            stateMismatchCount = ret.breakCount.toInt()
+            stateMatchCount = ret.matchCount
+            stateTotalCount = ret.totalCount.toInt()
+            stateMissingActualCount = ret.missingActualCount
+            stateMissingExpectedCount = ret.missingExpectedCount
+        }
+    @Test
+    @Order(12)
+    internal fun `missing comparison runs`() {
+        suspend fun doCompare() {
+            coroutineScope {
+                val mutex = Mutex()
+                val totals = PersonTopicComparisonResult.newBuilder()
+                (0 until numberOfPartitions).map { part ->
+                    launch(Dispatchers.IO) {
+                        val res: PersonTopicComparisonResult = server.kafkaComparison(
+                            missingComparisonInfo().toBuilder()
+                                .addPartitionsToCompare(part)
+                                .build()
+                        )
+                        mutex.withLock {
+                            totals += res.toBuilder()
+                        }
+                    }
+                }.joinAll()
+                assert(totals.matchedRecords == stateMatchCount)
+                assert(totals.unmatchedRecords == stateMismatchCount)
+                assert(totals.missingExpected == stateMissingExpectedCount )
+                assert(totals.missingActual == stateMissingActualCount )
+                assert(totals.totalRecords == stateTotalCount)
+            }
+        }
+
+        runBlocking {
+            doCompare()
+        }
+    }
+
+    @Test
+    @Order(13)
+    internal fun `missing comparison populates output kafka topic`() {
+        suspend fun doCount() {
+            val ct = AtomicLong()
+            coroutineScope {
+                (0 until numberOfPartitions).map { part ->
+                    launch(Dispatchers.IO) {
+                        val ret = kafka.kafkaRecordCount(kafkaCountRequest {
+                            topic = missingOutputDataTopic
+                            partition = part
+                        })
+                        ct.addAndGet(ret.records)
+                    }
+                }.joinAll()
+                assert(ct.get() == stateTotalCount.toLong())
+            }
+        }
+        runBlocking {
+            doCount()
+        }
+    }
+
+    @Test
+    @Order(14)
+    internal fun `expected missing breakdown in output kafka topic`() {
+        runBlocking {
+            result.kafkaComparisonReport(
+                comparisonReportTopic {
+                    topicName = missingOutputDataTopic
+                }
+            ).let {
+                assert(it.topicName == missingOutputDataTopic)
+                assert(it.matches == stateMatchCount)
+                assert(it.breaks == stateMismatchCount)
+                assert(it.onlyActual == stateMissingExpectedCount)
+                assert(it.onlyExpected == stateMissingActualCount)
+            }
+        }
+    }
+
+
+
 }

@@ -129,6 +129,9 @@ message PersonTopicComparison {
 message PersonTopicComparisonResult {
   uint32 matchedRecords = 1;
   uint32 unmatchedRecords = 2;
+  uint32 missingActual = 3;
+  uint32 missingExpected = 4;
+  uint32 totalRecords = 5;
 }
 
 message PersonComparisonResponse {
@@ -146,11 +149,18 @@ message TestDataRequest {
   string expectedDataTopic = 2;
   string actualDataTopic = 3;
   uint32 percentBreaks = 4;
+  uint32 missingExpectedPercent = 5;
+  uint32 missingActualPercent = 6;
 }
 
 message TestDataResponse {
-  uint64 recordCount = 1;
-  uint64 breakCount = 2;
+  uint64 actualCount = 1;
+  uint64 expectedCount = 2;
+  uint64 totalCount = 3;
+  uint64 breakCount = 4;
+  uint32 missingExpectedCount = 5;
+  uint32 missingActualCount = 6;
+  uint32 matchCount = 7;
 }
 
 message PersonComparison {
